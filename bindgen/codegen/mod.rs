@@ -4306,6 +4306,112 @@ impl CodeGenerator for Function {
             }
         };
 
+        let encapfn_wrapper_tokens =
+            if let Some(encapfn_context) = ctx.encapfn_context() {
+		// // Check whether this symbol is exported with a given encapfn
+		// // ID, otherwise skip it!
+		// let fn_name = ident.span().source_text().expect("Function identifier has no source text!");
+
+		if let Some(fn_cfg) = encapfn_context.config.functions.get(&ident.to_string()) {
+		    // This is a function that is accessible in the encapsulated
+		    // function binary, interpolate its ID into the const
+		    // generic arg.
+
+		    // Don't support variadic functions yet, would likely
+		    // involve passing the rt parameter as the first argument
+		    // and unstacking and moving other arguments.
+		    if let Some(WrapAsVariadic { .. }) = &wrap_as_variadic {
+			panic!("Encapfn bindings don't support variadic functions");
+		    }
+
+		    // Request an oracle which we can use to determine certain
+		    // properties about our function signature:
+		    let oracle = encapfn_context.get_oracle_for_triple(ctx, &ctx.target_info().triple, ctx.abi_kind())
+			.expect(&format!("Target triple {:?} and ABI {:?} combination unknown to Encapsulated Functions", ctx.target_info().triple, ctx.abi_kind()));
+
+		    let argument_layouts: Vec<_> = signature
+			.argument_types()
+			.iter()
+			.map(|(_name, type_id)| {
+			    let ty = ctx.resolve_type(*type_id);
+			    ty.layout(&ctx).expect(&format!(
+				"Encapsulated Functions wrapper generation requires known layout of all types. Offending type: {:?}",
+				ty,
+			    ))
+			})
+			.collect();
+
+		    // Determine the argument register or stack offset of each
+		    // of the function arguments, with the Encapsulated
+		    // Functions arguments appended:
+		    let argument_ef_slots = oracle.determine_argument_slots(
+			&argument_layouts.iter()
+			    .chain(&[
+				// Runtime parameter, simply a pointer:
+				Layout {
+				    size: ctx.target_pointer_size(),
+				    align: ctx.target_pointer_size(),
+				    packed: false,
+				},
+				// Access scope parameter, also just a pointer:
+				Layout {
+				    size: ctx.target_pointer_size(),
+				    align: ctx.target_pointer_size(),
+				    packed: false,
+				},
+			    ])
+			    .cloned()
+			    .collect()
+		    );
+
+		    // Provide access to the runtime and access scope parameters:
+		    let runtime_argument_slot = &argument_ef_slots[argument_ef_slots.len() - 2];
+		    let _access_scope_argument_slot = &argument_ef_slots[argument_ef_slots.len() - 1];
+
+                    // TODO: verify that ABI is "C" and no attributes are passed!
+
+		    let encapfn_function_id = fn_cfg.id;
+		    let wrapper_name_ident = format_ident!("{}", &encapfn_context.config.wrapper_name);
+		    let runtime_argument_slot_type = oracle.argument_slot_type(*runtime_argument_slot);
+		    let stack_spill = oracle.determine_stack_spill(&argument_layouts);
+
+                    quote! {
+			impl<ID: ::encapfn::branding::EFID, RT: ::encapfn::abi::rv32i_c::Rv32iCABIRt> #wrapper_name_ident<ID, RT> {
+			    // This ensures that at compile time with all types
+			    // resolved, the runtime reference has the expected
+			    // align and 
+
+			    // #(#attributes)* TODO?
+			    #[allow(non_upper_case_globals)]
+			    const #ident: extern "C" fn(
+				#( #args ),*,
+				 _rt: &RT,
+				_access_scope: &mut ::encapfn::types::AccessScope<ID>,
+			    ) #ret = unsafe {
+				::core::mem::transmute::<
+				    unsafe extern "C" fn(),
+                                    extern "C" fn(
+					#( #args ),*,
+                                        _rt: &RT,
+					_access_scope: &mut ::encapfn::types::AccessScope<ID>,
+				    ) #ret,
+				>(
+				    RT::invoke_wrapped::<
+					#encapfn_function_id,
+				        #stack_spill,
+				        #runtime_argument_slot_type,
+				    > as unsafe extern "C" fn()
+				)
+			    };
+			}
+                    }
+		} else {
+		    quote! {}
+		}
+            } else {
+                quote! {}
+            };
+
         // Add the item to the serialization list if necessary
         if should_wrap {
             result
@@ -4332,6 +4438,7 @@ impl CodeGenerator for Function {
             );
         } else {
             result.push(tokens);
+            result.push(encapfn_wrapper_tokens);
         }
         Some(times_seen)
     }

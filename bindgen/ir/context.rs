@@ -487,6 +487,11 @@ pub(crate) struct BindgenContext {
     /// Populated when we enter codegen by `compute_has_float`; always `None`
     /// before that and `Some` after.
     has_float: Option<HashSet<ItemId>>,
+
+    /// Encapsulated functions wrapper generation configuration.
+    ///
+    /// Set when `--encapfn-configuration-file` is passed on the command line.
+    encapfn: Option<crate::encapfn::EncapfnContext>,
 }
 
 /// A traversal of allowlisted items.
@@ -568,6 +573,11 @@ If you encounter an error missing from this list, please file an issue or a PR!"
         // depfiles need to include the explicitly listed headers too
         let deps = options.input_headers.iter().cloned().collect();
 
+        let opt_encapfn = options
+            .encapfn_configuration_file
+            .as_ref()
+            .map(|cfg| crate::encapfn::EncapfnContext::new(cfg));
+
         BindgenContext {
             items: vec![Some(root_module)],
             includes: Default::default(),
@@ -604,6 +614,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
             have_destructor: None,
             has_type_param_in_array: None,
             has_float: None,
+            encapfn: opt_encapfn,
         }
     }
 
@@ -2136,6 +2147,18 @@ If you encounter an error missing from this list, please file an issue or a PR!"
     /// Get the options used to configure this bindgen context.
     pub(crate) fn options(&self) -> &BindgenOptions {
         &self.options
+    }
+
+    /// Get the encapfn context.
+    pub(crate) fn encapfn_context(
+        &self,
+    ) -> Option<&crate::encapfn::EncapfnContext> {
+        self.encapfn.as_ref()
+    }
+
+    /// Get the target information.
+    pub(crate) fn target_info(&self) -> &clang::TargetInfo {
+	&self.target_info
     }
 
     /// Tokenizes a namespace cursor in order to get the name and kind of the

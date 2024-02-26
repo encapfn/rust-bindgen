@@ -49,6 +49,8 @@ mod ir;
 mod parse;
 mod regex_set;
 
+mod encapfn;
+
 pub use codegen::{
     AliasVariation, EnumVariation, MacroTypeVariation, NonCopyUnionStyle,
 };
@@ -920,10 +922,19 @@ impl Bindings {
             parse(&mut context)?;
         }
 
+	// Generate the Encapsulated Functions prologue:
+	let encapfn_prologue = context.encapfn_context().map(|ef| ef.prologue()).unwrap_or_else(|| quote! {});
+
         let (module, options) =
             codegen::codegen(context).map_err(BindgenError::Codegen)?;
 
-        Ok(Bindings { options, module })
+        Ok(Bindings {
+	    options,
+	    module: quote! {
+		#encapfn_prologue
+		#module
+	    },
+	})
     }
 
     /// Write these bindings as source text to a file.

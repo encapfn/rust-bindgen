@@ -1717,6 +1717,22 @@ options! {
         },
         as_args: "--rustfmt-configuration-file",
     },
+    /// The absolute path to the `rustfmt` configuration file.
+    encapfn_configuration_file: Option<PathBuf> {
+        methods: {
+            /// Set the absolute path to the `encapfn` configuration file.
+            ///
+            /// If this option is passed, Encapsulated Functions wrappers will
+        /// be generated for this library and all functions that have been
+        /// assigned an ID.
+            ///
+            pub fn encapfn_configuration_file(mut self, path: Option<PathBuf>) -> Self {
+                self.options.encapfn_configuration_file = path;
+                self
+            }
+        },
+        as_args: "--encapfn-configuration-file",
+    },
     /// Types that should not derive `PartialEq`.
     no_partialeq_types: RegexSet {
         methods: {
