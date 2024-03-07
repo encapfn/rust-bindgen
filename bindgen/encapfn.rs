@@ -11,7 +11,7 @@ use crate::ir::context::TypeId;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct EncapfnFunctionConfig {
-    pub id: u64,
+    pub fntab_id: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -36,7 +36,7 @@ impl EncapfnContext {
 	let wrapper_name_ident = format_ident!("{}", &self.config.wrapper_name);
 
 	quote!{
-	    enum #wrapper_name_ident<ID: ::encapfn::branding::EFID, RT: ::encapfn::EncapfnRt> {
+	    pub enum #wrapper_name_ident<ID: ::encapfn::branding::EFID, RT: ::encapfn::EncapfnRt> {
 		_Impossible(::core::convert::Infallible, ::core::marker::PhantomData<ID>, ::core::marker::PhantomData<RT>),
 	    }
 	}
