@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::cell::RefCell;
 
 use proc_macro2::TokenStream;
 use serde::Deserialize;
@@ -23,22 +24,94 @@ pub struct EncapfnConfig {
 #[derive(Debug)]
 pub struct EncapfnContext {
     pub config: EncapfnConfig,
+    pub trait_functions: RefCell<Vec<TokenStream>>,
+    pub abi_trait_implementations: RefCell<HashMap<String, (TokenStream, Vec<TokenStream>)>>,
 }
 
 impl EncapfnContext {
     pub fn new<P: AsRef<Path>>(cfg: &P) -> Self {
 	EncapfnContext {
             config: toml::from_str(std::str::from_utf8(&std::fs::read(cfg).unwrap()).unwrap()).unwrap(),
+	    trait_functions: RefCell::new(vec![]),
+	    abi_trait_implementations: RefCell::new(HashMap::new()),
 	}
     }
 
     pub fn prologue(&self) -> TokenStream {
-	let wrapper_name_ident = format_ident!("{}", &self.config.wrapper_name);
+	let wrapper_trait_ident = format_ident!("{}", &self.config.wrapper_name);
+	let wrapper_type_ident = format_ident!("{}Rt", &self.config.wrapper_name);
+	let bundle_ident = format_ident!("{}Bundle", &self.config.wrapper_name);
 
-	quote!{
-	    pub enum #wrapper_name_ident<ID: ::encapfn::branding::EFID, RT: ::encapfn::EncapfnRt> {
-		_Impossible(::core::convert::Infallible, ::core::marker::PhantomData<ID>, ::core::marker::PhantomData<RT>),
+	let function_definitions = self.trait_functions.borrow();
+
+	let abi_trait_implementations = self.abi_trait_implementations.borrow().iter().map(|(_abi_label, (abi, impls))| {
+	    quote! {
+		impl<
+		    'a,
+                    ID: ::encapfn::branding::EFID,
+		    RT: ::encapfn::rt::EncapfnRt<ABI = #abi>
+		> #wrapper_trait_ident<ID, RT, #abi> for #wrapper_type_ident<'a, ID, RT> {
+		    type RT = RT;
+
+		    #( #impls )*
+	        }
 	    }
+	}).collect::<Vec<_>>();
+
+	quote! {
+	    // This must be generic over both the RT _and_ ABI, despite the ABI being
+	    // governed by the RT. Otherwise, we cannot provide different implementations
+	    // of this for different ABIs:
+	    // https://geo-ant.github.io/blog/2021/mutually-exclusive-traits-rust/
+	    pub trait #wrapper_trait_ident<
+		ID: ::encapfn::branding::EFID,
+                RT: ::encapfn::rt::EncapfnRt,
+                ABI = <RT as ::encapfn::rt::EncapfnRt>::ABI
+	    > {
+		    type RT: ::encapfn::rt::EncapfnRt;
+
+		    #( #function_definitions )*
+		}
+
+	    // pub enum #wrapper_type_ident {}
+	    pub struct #wrapper_type_ident<
+		'a,
+		ID: ::encapfn::branding::EFID,
+	        RT: ::encapfn::rt::EncapfnRt,
+	    > {
+		rt: &'a RT,
+		_id: ::core::marker::PhantomData<ID>,
+	    }
+
+	    // pub struct #bundle_ident<
+	    // 	ID: ::encapfn::branding::EFID,
+	    //     RT: ::encapfn::rt::EncapfnRt,
+	    //     L: #wrapper_trait_ident<ID, RT>,
+	    // >(L, ::encapfn::types::AllocScope<RT::AllocTracker, ID>, ::encapfn::types::AccessScope<ID>);
+	    // impl<
+	    // 	ID: ::encapfn::branding::EFID,
+	    //     RT: ::encapfn::rt::EncapfnRt<ID = ID>,
+	    //     L: #wrapper_trait_ident<ID, RT>,
+	    // > ::encapfn::rt::EncapfnRtBundle<ID, RT, L> for #bundle_ident<ID, RT, L> {
+	    // 	fn split(&mut self) -> (&mut L, &mut ::encapfn::types::AllocScope<RT::AllocTracker, ID>, &mut ::encapfn::types::AccessScope<ID>) {
+	    // 	    (&mut self.0, &mut self.1, &mut self.2)
+	    // 	}
+	    // }
+
+	    impl<
+		'a,
+		ID: ::encapfn::branding::EFID,
+	        RT: ::encapfn::rt::EncapfnRt,
+	    > #wrapper_type_ident<'a, ID, RT> {
+		pub fn new(rt: &'a RT) -> Self {
+		    #wrapper_type_ident {
+			rt: rt,
+			_id: ::core::marker::PhantomData,
+		    }
+		}
+	    }
+
+	    #( #abi_trait_implementations )*
 	}
     }
 

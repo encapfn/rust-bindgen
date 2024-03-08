@@ -4353,22 +4353,52 @@ impl CodeGenerator for Function {
                     // TODO: verify that ABI is "C" and no attributes are passed!
 
 		    let encapfn_function_id = fn_cfg.fntab_id;
-		    let wrapper_name_ident = format_ident!("{}", &encapfn_context.config.wrapper_name);
+		    let wrapper_trait_ident = format_ident!("{}", &encapfn_context.config.wrapper_name);
+		    let wrapper_type_ident = format_ident!("{}Rt", &encapfn_context.config.wrapper_name);
 		    let ident_int = format_ident!("{}_int", ident);
 
-		    // Always generate dummy bindings:
-		    let ef_bindings = quote! {
-			impl<ID: ::encapfn::branding::EFID, RT: ::encapfn::rt::nop::NopRt> #wrapper_name_ident<ID, RT> {
+		    encapfn_context.trait_functions.borrow_mut().push(quote! {
+			fn #ident(
+			    &self,
+			    #( #args, )*
+			    _access_scope: &mut ::encapfn::types::AccessScope<ID>,
+			) #ret;
+		    });
+
+		    // Always generate dummy bindings for the GenericABI:
+		    encapfn_context.abi_trait_implementations.borrow_mut().entry("GenericABI".to_string()).or_insert_with(|| (quote! { ::encapfn::abi::GenericABI }, vec![])).1.push(
+			quote! {
 			    // TODO: collect all of these as a top-level trait?
 			    // TODO: document safety. This is safe because the constructor of the NopRt is unsafe!
-			    pub fn #ident(
+			    fn #ident(
+				&self,
 				#( #args, )*
-				_rt: &RT,
 				_access_scope: &mut ::encapfn::types::AccessScope<ID>,
 			    ) #ret {
 				unsafe { self::#ident(#( #arg_idents ),*) }
 			    }
+
 			}
+		    );
+
+
+		    // Always generate dummy bindings
+		    let ef_bindings = quote! {
+			// impl<
+			//     'a,
+			//     ID: ::encapfn::branding::EFID,
+			//     RT: ::encapfn::rt::EncapfnRt<ABI = ::encapfn::abi::GenericABI>
+			// > #wrapper_trait_ident<ID, RT, ::encapfn::abi::GenericABI> for #wrapper_type_ident<'a, ID, RT> {
+			//     // TODO: collect all of these as a top-level trait?
+			//     // TODO: document safety. This is safe because the constructor of the NopRt is unsafe!
+			//     fn #ident(
+			// 	&self,
+			// 	#( #args, )*
+			// 	_access_scope: &mut ::encapfn::types::AccessScope<ID>,
+			//     ) #ret {
+			// 	unsafe { self::#ident(#( #arg_idents ),*) }
+			//     }
+			// }
                     };
 
 		    // If we do have an oracle, also generate platform-dependent bindings:
@@ -4839,8 +4869,8 @@ impl CodeGenerator for ObjCInterface {
 }
 
 pub(crate) fn codegen(
-    context: BindgenContext,
-) -> Result<(proc_macro2::TokenStream, BindgenOptions), CodegenError> {
+    context: &mut BindgenContext,
+) -> Result<proc_macro2::TokenStream, CodegenError> {
     context.gen(|context| {
         let _t = context.timer("codegen");
         let counter = Cell::new(0);

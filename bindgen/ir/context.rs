@@ -1195,9 +1195,9 @@ If you encounter an error missing from this list, please file an issue or a PR!"
     /// Enter the code generation phase, invoke the given callback `cb`, and
     /// leave the code generation phase.
     pub(crate) fn gen<F, Out>(
-        mut self,
+        &mut self,
         cb: F,
-    ) -> Result<(Out, BindgenOptions), CodegenError>
+    ) -> Result<Out, CodegenError>
     where
         F: FnOnce(&Self) -> Result<Out, CodegenError>,
     {
@@ -1234,8 +1234,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
         self.compute_cannot_derive_hash();
         self.compute_cannot_derive_partialord_partialeq_or_eq();
 
-        let ret = cb(&self)?;
-        Ok((ret, self.options))
+        cb(&self)
     }
 
     /// When the `__testing_only_extra_assertions` feature is enabled, this
@@ -2147,6 +2146,10 @@ If you encounter an error missing from this list, please file an issue or a PR!"
     /// Get the options used to configure this bindgen context.
     pub(crate) fn options(&self) -> &BindgenOptions {
         &self.options
+    }
+
+    pub(crate) fn into_options(self) -> BindgenOptions {
+	self.options
     }
 
     /// Get the encapfn context.

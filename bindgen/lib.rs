@@ -922,14 +922,17 @@ impl Bindings {
             parse(&mut context)?;
         }
 
-	// Generate the Encapsulated Functions prologue:
+	// // Generate the Encapsulated Functions prologue and epilogue:
+	// let encapfn_prologue = context.encapfn_context().map(|ef| ef.prologue()).unwrap_or_else(|| quote! {});
+
+        let module =
+            codegen::codegen(&mut context).map_err(BindgenError::Codegen)?;
+
+	// Generate the Encapsulated Functions prologue and epilogue:
 	let encapfn_prologue = context.encapfn_context().map(|ef| ef.prologue()).unwrap_or_else(|| quote! {});
 
-        let (module, options) =
-            codegen::codegen(context).map_err(BindgenError::Codegen)?;
-
         Ok(Bindings {
-	    options,
+	    options: context.into_options(),
 	    module: quote! {
 		#encapfn_prologue
 		#module
