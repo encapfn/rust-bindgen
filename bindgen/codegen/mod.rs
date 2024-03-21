@@ -4306,68 +4306,164 @@ impl CodeGenerator for Function {
             }
         };
 
-        let encapfn_wrapper_tokens =
-            if let Some(encapfn_context) = ctx.encapfn_context() {
-		// // Check whether this symbol is exported with a given encapfn
-		// // ID, otherwise skip it!
-		// let fn_name = ident.span().source_text().expect("Function identifier has no source text!");
+        if let Some(encapfn_context) = ctx.encapfn_context() {
+	    // // Check whether this symbol is exported with a given encapfn
+	    // // ID, otherwise skip it!
+	    // let fn_name = ident.span().source_text().expect("Function identifier has no source text!");
 
-		if let Some(fn_cfg) = encapfn_context.config.functions.get(&ident.to_string()) {
-		    // This is a function that is accessible in the encapsulated
-		    // function binary, interpolate its ID into the const
-		    // generic arg.
+	    if let Some(fn_cfg) = encapfn_context.config.functions.get(&ident.to_string()) {
+		// This is a function that is accessible in the encapsulated
+		// function binary, interpolate its ID into the const
+		// generic arg.
 
-		    // Don't support variadic functions yet, would likely
-		    // involve passing the rt parameter as the first argument
-		    // and unstacking and moving other arguments.
-		    if let Some(WrapAsVariadic { .. }) = &wrap_as_variadic {
-			panic!("Encapfn bindings don't support variadic functions");
-		    }
+		// Don't support variadic functions yet, would likely
+		// involve passing the rt parameter as the first argument
+		// and unstacking and moving other arguments.
+		if let Some(WrapAsVariadic { .. }) = &wrap_as_variadic {
+		    panic!("Encapfn bindings don't support variadic functions");
+		}
 
-		    // Request an oracle which we can use to determine certain
-		    // properties about our function signature:
-		    let oracle = encapfn_context.get_oracle_for_triple(ctx, &ctx.target_info().triple, ctx.abi_kind());
-		    if oracle.is_none() {
-			eprintln!("Warning: Target triple {:?} and ABI {:?} combination unknown to Encapsulated Functions, only generating dummy bindings.", ctx.target_info().triple, ctx.abi_kind());
-		    }
+		// Request an oracle which we can use to determine certain
+		// properties about our function signature:
+		let oracle = encapfn_context.get_oracle_for_triple(ctx, &ctx.target_info().triple, ctx.abi_kind());
+		if oracle.is_none() {
+		    eprintln!("Warning: Target triple {:?} and ABI {:?} combination unknown to Encapsulated Functions, only generating dummy bindings.", ctx.target_info().triple, ctx.abi_kind());
+		    panic!("Warning: Target triple {:?} and ABI {:?} combination unknown to Encapsulated Functions, only generating dummy bindings.", ctx.target_info().triple, ctx.abi_kind());
 
-		    let argument_layouts: Vec<_> = signature
-			.argument_types()
-			.iter()
-			.map(|(_name, type_id)| {
-			    let ty = ctx.resolve_type(*type_id);
-			    ty.layout(&ctx).expect(&format!(
-				"Encapsulated Functions wrapper generation requires known layout of all types. Offending type: {:?}",
-				ty,
-			    ))
-			})
-			.collect();
+		}
 
-		    // To call our wrapper functions, we need to also have the
-		    // argument identifiers available to us. TODO: these should
-		    // not be able to contain any arguments we add in our
-		    // wrappers. Perhaps automatically generate names for our
-		    // additional arguments in case they collide?
-		    let arg_idents = utils::fnsig_argument_identifiers(ctx, signature);
+		let argument_layouts: Vec<_> = signature
+		    .argument_types()
+		    .iter()
+		    .map(|(_name, type_id)| {
+			let ty = ctx.resolve_type(*type_id);
+			ty.layout(&ctx).expect(&format!(
+			    "Encapsulated Functions wrapper generation requires known layout of all types. Offending type: {:?}",
+			    ty,
+			))
+		    })
+		    .collect();
 
-                    // TODO: verify that ABI is "C" and no attributes are passed!
+		// To call our wrapper functions, we need to also have the
+		// argument identifiers available to us. TODO: these should
+		// not be able to contain any arguments we add in our
+		// wrappers. Perhaps automatically generate names for our
+		// additional arguments in case they collide?
+		let arg_idents = utils::fnsig_argument_identifiers(ctx, signature);
 
-		    let encapfn_function_id = fn_cfg.fntab_id;
-		    let wrapper_trait_ident = format_ident!("{}", &encapfn_context.config.wrapper_name);
-		    let wrapper_type_ident = format_ident!("{}Rt", &encapfn_context.config.wrapper_name);
-		    let ident_int = format_ident!("{}_int", ident);
+                // TODO: verify that ABI is "C" and no attributes are passed!
 
-		    encapfn_context.trait_functions.borrow_mut().push(quote! {
-			fn #ident(
-			    &self,
-			    #( #args, )*
-			    _access_scope: &mut ::encapfn::types::AccessScope<ID>,
-			) #ret;
+		let encapfn_function_id = fn_cfg.fntab_id;
+		let wrapper_trait_ident = format_ident!("{}", &encapfn_context.config.wrapper_name);
+		let wrapper_type_ident = format_ident!("{}Rt", &encapfn_context.config.wrapper_name);
+		let ident_int = format_ident!("{}_int", ident);
+
+		encapfn_context.trait_functions.borrow_mut().push(quote! {
+		    fn #ident(
+			&self,
+			#( #args, )*
+			access_scope: &mut ::encapfn::types::AccessScope<ID>,
+		    ) #ret;
+		});
+
+		// // Always generate dummy bindings for the GenericABI:
+		// encapfn_context.abi_trait_implementations
+		//     .borrow_mut()
+		//     .entry("MockRt".to_string())
+		//     .or_insert_with(|| (quote! { ::encapfn::rt::mock::MockRt }, vec![]))
+		//     .1
+		//     .push(quote! {
+		// 	// TODO: collect all of these as a top-level trait?
+		// 	// TODO: document safety. This is safe because the constructor of the NopRt is unsafe!
+		// 	fn #ident(
+		// 	    &self,
+		// 	    #( #args, )*
+		// 	    _access_scope: &mut ::encapfn::types::AccessScope<ID>,
+		// 	) #ret {
+		// 	    unsafe { self::#ident(#( #arg_idents ),*) }
+		// 	}
+		//     });
+
+
+		// If we do have an oracle, also generate platform-dependent bindings:
+		if let Some(ref oracle) = oracle {
+		    // Determine the argument register or stack offset of each
+		    // of the function arguments, with the Encapsulated
+		    // Functions arguments appended:
+		    let argument_ef_slots = oracle.determine_argument_slots(
+			&argument_layouts.iter()
+			    .chain(&[
+				// Runtime parameter, simply a pointer:
+				Layout {
+				    size: ctx.target_pointer_size(),
+				    align: ctx.target_pointer_size(),
+				    packed: false,
+				},
+				// Access scope parameter, also just a pointer:
+				Layout {
+				    size: ctx.target_pointer_size(),
+				    align: ctx.target_pointer_size(),
+				    packed: false,
+				},
+			    ])
+			    .cloned()
+			    .collect()
+		    );
+
+		    // Provide access to the runtime and access scope parameters:
+		    let runtime_argument_slot = &argument_ef_slots[argument_ef_slots.len() - 2];
+		    let _access_scope_argument_slot = &argument_ef_slots[argument_ef_slots.len() - 1];
+		    let runtime_argument_slot_type = oracle.argument_slot_type(*runtime_argument_slot);
+		    let stack_spill = oracle.determine_stack_spill(&argument_layouts);
+
+		    let mut abi_trait_impls_borrow = encapfn_context.abi_trait_implementations.borrow_mut();
+
+		    let abi_trait_impl = abi_trait_impls_borrow
+			.entry("SysVAMD64".to_string()).or_insert_with(|| (Box::new(|lib_ident, rt_wrapper_ident, rt_constraints, impls| {
+			    let lib_abirt_trait_ident = format_ident!("{}SysVAMD64Rt", lib_ident);
+
+			    quote! {
+				trait #lib_abirt_trait_ident:
+				    ::encapfn::rt::EncapfnRt<ABI = ::encapfn::abi::sysv_amd64::SysVAMD64ABI>
+				    #( + #rt_constraints )*
+				{}
+
+				impl<
+				    RT: ::encapfn::rt::EncapfnRt<ABI = ::encapfn::abi::sysv_amd64::SysVAMD64ABI>
+				    #( + #rt_constraints )*
+				> #lib_abirt_trait_ident for RT
+				{}
+
+				impl<ID: ::encapfn::branding::EFID, RT: #lib_abirt_trait_ident<ID = ID>> #lib_ident<ID, RT, ::encapfn::abi::sysv_amd64::SysVAMD64ABI> for #rt_wrapper_ident<'_, ID, RT> {
+				    type RT = RT;
+
+				    fn rt(&self) -> &Self::RT {
+					&self.rt
+				    }
+
+				    #( #impls )*
+				}
+			    }
+			}), vec![], vec![]));
+
+		    let (_, ref mut rt_constraints, ref mut impls) = abi_trait_impl;
+
+		    rt_constraints.push(quote! {
+			::encapfn::rt::sysv_amd64::SysVAMD64Rt<#stack_spill, #runtime_argument_slot_type>
 		    });
 
-		    // Always generate dummy bindings for the GenericABI:
-		    encapfn_context.abi_trait_implementations.borrow_mut().entry("GenericABI".to_string()).or_insert_with(|| (quote! { ::encapfn::abi::GenericABI }, vec![])).1.push(
-			quote! {
+		    let msg = format!(
+			"Invoking function {:?} with argument list {:?}, stack spill {} and arg slot {}",
+			ident,
+			args.iter().map(|ts| format!("{}", ts)).collect::<Vec<_>>(),
+			stack_spill,
+			runtime_argument_slot_type
+		    );
+		    let function_name = ident.to_string();
+
+		    let symbol_table_idx = encapfn_context.symbol_table_offsets.0.get(&ident.to_string()).unwrap();
+
+		    impls.push(quote! {
 			    // TODO: collect all of these as a top-level trait?
 			    // TODO: document safety. This is safe because the constructor of the NopRt is unsafe!
 			    fn #ident(
@@ -4375,101 +4471,56 @@ impl CodeGenerator for Function {
 				#( #args, )*
 				_access_scope: &mut ::encapfn::types::AccessScope<ID>,
 			    ) #ret {
-				unsafe { self::#ident(#( #arg_idents ),*) }
+				#[naked]
+				unsafe extern "C" fn #ident_int<
+				    RT: ::encapfn::rt::sysv_amd64::SysVAMD64Rt<#stack_spill, #runtime_argument_slot_type>
+				>(#( #args, )* _rt: &RT, _fnptr: *const ()) #ret {
+				    core::arch::asm!(
+					"
+                                        lea r10, [rip + {invoke}]
+                                        jmp r10
+					",
+					invoke = sym RT::invoke,
+					options(noreturn),
+				    );
+				}
+
+				let addr = self.rt()
+				    .lookup_symbol(#symbol_table_idx, &self.symbols)
+				    .expect(&format!("Symbol for function {} at index {} into symbol table state not found!", #function_name, #symbol_table_idx));
+				println!("{}, at resolved addr {:?}", #msg, addr);
+				unsafe { #ident_int::<RT>(#( #arg_idents ),* self.rt(), addr) }
 			    }
-
-			}
-		    );
+			});
 
 
-		    // Always generate dummy bindings
-		    let ef_bindings = quote! {
-			// impl<
-			//     'a,
-			//     ID: ::encapfn::branding::EFID,
-			//     RT: ::encapfn::rt::EncapfnRt<ABI = ::encapfn::abi::GenericABI>
-			// > #wrapper_trait_ident<ID, RT, ::encapfn::abi::GenericABI> for #wrapper_type_ident<'a, ID, RT> {
-			//     // TODO: collect all of these as a top-level trait?
-			//     // TODO: document safety. This is safe because the constructor of the NopRt is unsafe!
-			//     fn #ident(
-			// 	&self,
-			// 	#( #args, )*
-			// 	_access_scope: &mut ::encapfn::types::AccessScope<ID>,
-			//     ) #ret {
-			// 	unsafe { self::#ident(#( #arg_idents ),*) }
-			//     }
-			// }
-                    };
-
-		    // If we do have an oracle, also generate platform-dependent bindings:
-		    if let Some(ref oracle) = oracle {
-		    	// Determine the argument register or stack offset of each
-			// of the function arguments, with the Encapsulated
-			// Functions arguments appended:
-			let argument_ef_slots = oracle.determine_argument_slots(
-			    &argument_layouts.iter()
-				.chain(&[
-				    // Runtime parameter, simply a pointer:
-				    Layout {
-					size: ctx.target_pointer_size(),
-					align: ctx.target_pointer_size(),
-					packed: false,
-				    },
-				    // Access scope parameter, also just a pointer:
-				    Layout {
-					size: ctx.target_pointer_size(),
-					align: ctx.target_pointer_size(),
-					packed: false,
-				    },
-				])
-				.cloned()
-				.collect()
-			);
-
-			// Provide access to the runtime and access scope parameters:
-			let runtime_argument_slot = &argument_ef_slots[argument_ef_slots.len() - 2];
-			let _access_scope_argument_slot = &argument_ef_slots[argument_ef_slots.len() - 1];
-			let runtime_argument_slot_type = oracle.argument_slot_type(*runtime_argument_slot);
-			let stack_spill = oracle.determine_stack_spill(&argument_layouts);
-
-
-			quote! {
-			    // impl<ID: ::encapfn::branding::EFID, RT: ::encapfn::abi::rv32i_c::Rv32iCABIRt> #wrapper_name_ident<ID, RT> {
-			    //     // #(#attributes)* TODO?
-			    //     #[allow(non_upper_case_globals)]
-			    //     const #ident: extern "C" fn(
-			    // 	#( #args ),*,
-			    // 	 _rt: &RT,
-			    // 	_access_scope: &mut ::encapfn::types::AccessScope<ID>,
-			    //     ) #ret = unsafe {
-			    // 	::core::mem::transmute::<
-			    // 	    unsafe extern "C" fn(),
-                            //             extern "C" fn(
-			    // 		#( #args ),*,
-                            //                 _rt: &RT,
-			    // 		_access_scope: &mut ::encapfn::types::AccessScope<ID>,
-			    // 	    ) #ret,
-			    // 	>(
-			    // 	    RT::invoke_wrapped::<
-			    // 		#encapfn_function_id,
-			    // 	        #stack_spill,
-			    // 	        #runtime_argument_slot_type,
-			    // 	    > as unsafe extern "C" fn()
-			    // 	)
-			    //     };
-			    // }
-			}
-		    } else {
-			quote! {
-			    #ef_bindings
-			}
-		    }
-		} else {
-		    quote! {}
-		}
-            } else {
-                quote! {}
-            };
+		    // impl<ID: ::encapfn::branding::EFID, RT: ::encapfn::abi::rv32i_c::Rv32iCABIRt> #wrapper_name_ident<ID, RT> {
+		    //     // #(#attributes)* TODO?
+		    //     #[allow(non_upper_case_globals)]
+		    //     const #ident: extern "C" fn(
+		    // 	#( #args ),*,
+		    // 	 _rt: &RT,
+		    // 	_access_scope: &mut ::encapfn::types::AccessScope<ID>,
+		    //     ) #ret = unsafe {
+		    // 	::core::mem::transmute::<
+		    // 	    unsafe extern "C" fn(),
+                    //             extern "C" fn(
+		    // 		#( #args ),*,
+                    //                 _rt: &RT,
+		    // 		_access_scope: &mut ::encapfn::types::AccessScope<ID>,
+		    // 	    ) #ret,
+		    // 	>(
+		    // 	    RT::invoke_wrapped::<
+		    // 		#encapfn_function_id,
+		    // 	        #stack_spill,
+		    // 	        #runtime_argument_slot_type,
+		    // 	    > as unsafe extern "C" fn()
+		    // 	)
+		    //     };
+		    // }
+		};
+	    };
+	};
 
         // Add the item to the serialization list if necessary
         if should_wrap {
@@ -4497,7 +4548,7 @@ impl CodeGenerator for Function {
             );
         } else {
             result.push(tokens);
-            result.push(encapfn_wrapper_tokens);
+            // result.push(encapfn_wrapper_tokens);
         }
         Some(times_seen)
     }
