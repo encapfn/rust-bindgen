@@ -357,7 +357,50 @@ impl<'a> EncapfnABIOracle for EncapfnSysVAMD64Oracle<'a> {
         &self,
         args: &Vec<Layout>,
     ) -> Vec<ArgumentSlot> {
-        rv_determine_argument_slots::<false>(args)
+        // TODO: this is still mostly just the RISC-V code!
+        const PTR_SIZE: usize = 8;
+
+        // Keep track of the current offset in pointer-words:
+        let mut ptr_offset: usize = 0;
+
+        // Produce argument slots along the way:
+        let mut slots = Vec::with_capacity(args.len());
+
+        // Iterate over the type-layout of all arguments:
+        for arg in args {
+            let double_pointer_word =
+                arg.size > PTR_SIZE && arg.size <= 2 * PTR_SIZE;
+
+            // If we have a type twice the pointer size, make sure to
+            // place it at an even offset:
+            if double_pointer_word && ptr_offset % 2 == 1 {
+                ptr_offset += 1;
+            }
+
+            // No matter what, place the argument at this index. In the System-V
+            // AMD64 ABI we have 6 argument registers available. Either place it
+            // in one of those, or spill on the stack:
+            let width = if arg.size > 2 * PTR_SIZE {
+                PTR_SIZE
+            } else {
+                arg.size
+            };
+            if let Some(stack_offset) = ptr_offset.checked_sub(6) {
+                slots.push(ArgumentSlot::Stacked(stack_offset, width));
+            } else {
+                slots.push(ArgumentSlot::ArgumentRegister(ptr_offset, width));
+            }
+
+            // Now, if the argument as twice the pointer size, increment
+            // our offset by two pointer-size words, otherwise one:
+            if double_pointer_word {
+                ptr_offset += 2;
+            } else {
+                ptr_offset += 1;
+            }
+        }
+
+        slots
     }
 
     fn determine_stack_spill(&self, args: &Vec<Layout>) -> usize {
