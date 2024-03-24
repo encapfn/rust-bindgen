@@ -4338,16 +4338,16 @@ impl CodeGenerator for Function {
                 }
 
                 let argument_layouts: Vec<_> = signature
-		    .argument_types()
-		    .iter()
-		    .map(|(_name, type_id)| {
-			let ty = ctx.resolve_type(*type_id);
-			ty.layout(&ctx).expect(&format!(
-			    "Encapsulated Functions wrapper generation requires known layout of all types. Offending type: {:?}",
-			    ty,
-			))
-		    })
-		    .collect();
+                    .argument_types()
+                    .iter()
+                    .map(|(_name, type_id)| {
+                        let ty = ctx.resolve_type(*type_id);
+                        ty.layout(&ctx).expect(&format!(
+                            "Encapsulated Functions wrapper generation requires known layout of all types. Offending type: {:?}",
+                            ty,
+                        ))
+                    })
+                    .collect();
 
                 // To call our wrapper functions, we need to also have the
                 // argument identifiers available to us. TODO: these should
@@ -4378,19 +4378,19 @@ impl CodeGenerator for Function {
                     encapfn_context.abi_trait_implementations.borrow_mut();
 
                 let abi_trait_impl = abi_trait_impls_borrow
-			.entry("Mock".to_string()).or_insert_with(|| (Box::new(|lib_ident, rt_wrapper_ident, _rt_constraints, impls| {
-			    quote! {
-				impl<ID: ::encapfn::branding::EFID> #lib_ident<ID, ::encapfn::rt::mock::MockRt<ID>, ::encapfn::abi::GenericABI> for #rt_wrapper_ident<'_, ID, ::encapfn::rt::mock::MockRt<ID>> {
-				    type RT = ::encapfn::rt::mock::MockRt<ID>;
+                        .entry("Mock".to_string()).or_insert_with(|| (Box::new(|lib_ident, rt_wrapper_ident, _rt_constraints, impls| {
+                            quote! {
+                                impl<ID: ::encapfn::branding::EFID> #lib_ident<ID, ::encapfn::rt::mock::MockRt<ID>, ::encapfn::abi::GenericABI> for #rt_wrapper_ident<'_, ID, ::encapfn::rt::mock::MockRt<ID>> {
+                                    type RT = ::encapfn::rt::mock::MockRt<ID>;
 
-				    fn rt(&self) -> &Self::RT {
-					&self.rt
-				    }
+                                    fn rt(&self) -> &Self::RT {
+                                        &self.rt
+                                    }
 
-				    #( #impls )*
-				}
-			    }
-			}), vec![], vec![]));
+                                    #( #impls )*
+                                }
+                            }
+                        }), vec![], vec![]));
 
                 let (_, _, ref mut impls) = abi_trait_impl;
                 impls.push(quote! {
@@ -4440,47 +4440,50 @@ impl CodeGenerator for Function {
                         oracle.determine_stack_spill(&argument_layouts);
 
                     let abi_trait_impl = abi_trait_impls_borrow
-			.entry("SysVAMD64".to_string()).or_insert_with(|| (Box::new(|lib_ident, rt_wrapper_ident, rt_constraints, impls| {
-			    let lib_abirt_trait_ident = format_ident!("{}SysVAMD64Rt", lib_ident);
+                        .entry("SysVAMD64".to_string()).or_insert_with(|| (Box::new(|lib_ident, rt_wrapper_ident, rt_constraints, impls| {
+                            let lib_abirt_trait_ident = format_ident!("{}SysVAMD64Rt", lib_ident);
 
-			    quote! {
-				trait #lib_abirt_trait_ident:
-				    ::encapfn::rt::EncapfnRt<ABI = ::encapfn::abi::sysv_amd64::SysVAMD64ABI>
-				    #( + #rt_constraints )*
-				{}
+                            quote! {
+                                trait #lib_abirt_trait_ident:
+                                    ::encapfn::rt::EncapfnRt<ABI = ::encapfn::abi::sysv_amd64::SysVAMD64ABI>
+                                    #( + #rt_constraints )*
+                                {}
 
-				impl<
-				    RT: ::encapfn::rt::EncapfnRt<ABI = ::encapfn::abi::sysv_amd64::SysVAMD64ABI>
-				    #( + #rt_constraints )*
-				> #lib_abirt_trait_ident for RT
-				{}
+                                impl<
+                                    RT: ::encapfn::rt::EncapfnRt<ABI = ::encapfn::abi::sysv_amd64::SysVAMD64ABI>
+                                    #( + #rt_constraints )*
+                                > #lib_abirt_trait_ident for RT
+                                {}
 
-				impl<ID: ::encapfn::branding::EFID, RT: #lib_abirt_trait_ident<ID = ID>> #lib_ident<ID, RT, ::encapfn::abi::sysv_amd64::SysVAMD64ABI> for #rt_wrapper_ident<'_, ID, RT> {
-				    type RT = RT;
+                                impl<ID: ::encapfn::branding::EFID, RT: #lib_abirt_trait_ident<ID = ID>>
+                                    #lib_ident<ID, RT, ::encapfn::abi::sysv_amd64::SysVAMD64ABI>
+                                    for #rt_wrapper_ident<'_, ID, RT>
+                                {
+                                    type RT = RT;
 
-				    fn rt(&self) -> &Self::RT {
-					&self.rt
-				    }
+                                    fn rt(&self) -> &Self::RT {
+                                        &self.rt
+                                    }
 
-				    #( #impls )*
-				}
-			    }
-			}), vec![], vec![]));
+                                    #( #impls )*
+                                }
+                            }
+                        }), vec![], vec![]));
 
                     let (_, ref mut rt_constraints, ref mut impls) =
                         abi_trait_impl;
 
                     rt_constraints.push(quote! {
-			::encapfn::rt::sysv_amd64::SysVAMD64Rt<#stack_spill, #runtime_argument_slot_type>
-		    });
+                        ::encapfn::rt::sysv_amd64::SysVAMD64Rt<#stack_spill, #runtime_argument_slot_type>
+                    });
 
                     let msg = format!(
-			"Invoking function {:?} with argument list {:?}, stack spill {} and arg slot {}",
-			ident,
-			args.iter().map(|ts| format!("{}", ts)).collect::<Vec<_>>(),
-			stack_spill,
-			runtime_argument_slot_type
-		    );
+                        "Invoking function {:?} with argument list {:?}, stack spill {} and arg slot {}",
+                        ident,
+                        args.iter().map(|ts| format!("{}", ts)).collect::<Vec<_>>(),
+                        stack_spill,
+                        runtime_argument_slot_type
+                    );
                     let function_name = ident.to_string();
 
                     let symbol_table_idx = encapfn_context
@@ -4489,62 +4492,83 @@ impl CodeGenerator for Function {
                         .get(&ident.to_string())
                         .unwrap();
 
+                    let mut wrapped_invocation = quote! {
+                        unsafe {
+                            #ident_int::<RT>(
+                                #( #arg_idents, )*
+                                self.rt(),
+                                self.rt()
+                                    .lookup_symbol(#symbol_table_idx, &self.symbols)
+                                    .unwrap(),
+                            )
+                        }
+                    };
+
+                    let mut wrapped_args = vec![];
+
+                    for ((slot, arg_ident), (_arg_name, arg_ty)) in
+                        argument_ef_slots[..argument_ef_slots.len() - 2]
+                            .iter()
+                            .zip(arg_idents.iter())
+                            .zip(signature.argument_types())
+                    {
+                        let ty = utils::fnsig_argument_type(ctx, arg_ty);
+                        // Append "pass by reference pointer" in hopes this is a unique enough
+                        // name. TODO: automatically choose a non-colliding name!
+                        let arg_ident_ptr =
+                            format_ident!("{}_pbrptr", arg_ident.to_string());
+
+                        // Check whether an argument must be passed on the
+                        // stack. In that case, we allocate on the foreign
+                        // stack and move the object into that slot:
+                        if slot.pass_by_ref() {
+                            wrapped_invocation = quote! {
+                                self.rt().allocate_stacked_untracked(
+                                    ::std::alloc::Layout::new::<#ty>(),
+                                    // We deliberately alias the original argument name:
+                                    move |#arg_ident_ptr: *mut u8| {
+                                        // Move the argument into the allocated slot on the stack
+                                        unsafe { ::std::ptr::write(#arg_ident_ptr as *mut #ty, #arg_ident) };
+                                        // Alias the original argument name:
+                                        let #arg_ident: *const #ty = #arg_ident_ptr as *mut #ty as *const _;
+
+                                        #wrapped_invocation
+                                    },
+                                ).unwrap()
+                            };
+                            wrapped_args
+                                .push(quote! { #arg_ident: *const #ty });
+                        } else {
+                            wrapped_args.push(quote! { #arg_ident: #ty });
+                        }
+                    }
+
                     impls.push(quote! {
-			    // TODO: collect all of these as a top-level trait?
-			    // TODO: document safety. This is safe because the constructor of the NopRt is unsafe!
-                            #[inline]
-			    fn #ident(
-				&self,
-				#( #args, )*
-				_access_scope: &mut ::encapfn::types::AccessScope<ID>,
-			    ) #ret {
-				#[naked]
-				unsafe extern "C" fn #ident_int<
-				    RT: ::encapfn::rt::sysv_amd64::SysVAMD64Rt<#stack_spill, #runtime_argument_slot_type>
-				>(#( #args, )* _rt: &RT, _fnptr: *const ()) #ret {
-				    core::arch::asm!(
-					"
-                                        lea r10, [rip + {invoke}]
-                                        jmp r10
-					",
-					invoke = sym RT::invoke,
-					options(noreturn),
-				    );
-				}
+                        // TODO: collect all of these as a top-level trait?
+                        // TODO: document safety. This is safe because the constructor of the NopRt is unsafe!
+                        #[inline]
+                        fn #ident(
+                            &self,
+                            #( #args, )*
+                            _access_scope: &mut ::encapfn::types::AccessScope<ID>,
+                        ) #ret {
+                            #[naked]
+                            unsafe extern "C" fn #ident_int<
+                                RT: ::encapfn::rt::sysv_amd64::SysVAMD64Rt<#stack_spill, #runtime_argument_slot_type>
+                            >(#( #wrapped_args, )* _rt: &RT, _fnptr: *const ()) #ret {
+                                core::arch::asm!(
+                                    "
+                                    lea r10, [rip + {invoke}]
+                                    jmp r10
+                                    ",
+                                    invoke = sym RT::invoke,
+                                    options(noreturn),
+                                );
+                            }
 
-				let addr = self.rt()
-				    .lookup_symbol(#symbol_table_idx, &self.symbols)
-                                    .unwrap();
-				    //.expect(&format!("Symbol for function {} at index {} into symbol table state not found!", #function_name, #symbol_table_idx));
-				//println!("{}, at resolved addr {:?}", #msg, addr);
-				unsafe { #ident_int::<RT>(#( #arg_idents, )* self.rt(), addr) }
-			    }
-			});
-
-                    // impl<ID: ::encapfn::branding::EFID, RT: ::encapfn::abi::rv32i_c::Rv32iCABIRt> #wrapper_name_ident<ID, RT> {
-                    //     // #(#attributes)* TODO?
-                    //     #[allow(non_upper_case_globals)]
-                    //     const #ident: extern "C" fn(
-                    // 	#( #args ),*,
-                    // 	 _rt: &RT,
-                    // 	_access_scope: &mut ::encapfn::types::AccessScope<ID>,
-                    //     ) #ret = unsafe {
-                    // 	::core::mem::transmute::<
-                    // 	    unsafe extern "C" fn(),
-                    //             extern "C" fn(
-                    // 		#( #args ),*,
-                    //                 _rt: &RT,
-                    // 		_access_scope: &mut ::encapfn::types::AccessScope<ID>,
-                    // 	    ) #ret,
-                    // 	>(
-                    // 	    RT::invoke_wrapped::<
-                    // 		#encapfn_function_id,
-                    // 	        #stack_spill,
-                    // 	        #runtime_argument_slot_type,
-                    // 	    > as unsafe extern "C" fn()
-                    // 	)
-                    //     };
-                    // }
+                            #wrapped_invocation
+                        }
+                    });
                 };
             };
         };

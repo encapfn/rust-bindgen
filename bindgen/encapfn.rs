@@ -212,8 +212,24 @@ impl EncapfnContext {
 
 #[derive(Copy, Clone, Debug)]
 pub enum ArgumentSlot {
-    ArgumentRegister(usize, usize),
-    Stacked(usize, usize),
+    ArgumentRegister(usize, usize, bool),
+    Stacked(usize, usize, bool),
+}
+
+impl ArgumentSlot {
+    pub fn get_width(&self) -> usize {
+        match self {
+            ArgumentSlot::ArgumentRegister(_, w, _) => *w,
+            ArgumentSlot::Stacked(_, w, _) => *w,
+        }
+    }
+
+    pub fn pass_by_ref(&self) -> bool {
+        match self {
+            ArgumentSlot::ArgumentRegister(_, _, pbr) => *pbr,
+            ArgumentSlot::Stacked(_, _, pbr) => *pbr,
+        }
+    }
 }
 
 pub trait EncapfnABIOracle {
@@ -277,15 +293,19 @@ fn rv_determine_argument_slots<const RV64: bool>(
         // No matter what, place the argument at this index. On RISC-V
         // we have 8 argument registers available. Either place it in
         // one of those, or spill on the stack:
-        let width = if arg.size > 2 * ptr_size {
-            ptr_size
+        let (width, pass_by_ref) = if arg.size > 2 * ptr_size {
+            (ptr_size, true)
         } else {
-            arg.size
+            (arg.size, false)
         };
         if let Some(stack_offset) = ptr_offset.checked_sub(8) {
-            slots.push(ArgumentSlot::Stacked(stack_offset, width));
+            slots.push(ArgumentSlot::Stacked(stack_offset, width, pass_by_ref));
         } else {
-            slots.push(ArgumentSlot::ArgumentRegister(ptr_offset, width));
+            slots.push(ArgumentSlot::ArgumentRegister(
+                ptr_offset,
+                width,
+                pass_by_ref,
+            ));
         }
 
         // Now, if the argument as twice the pointer size, increment
@@ -310,7 +330,7 @@ impl<'a> EncapfnABIOracle for EncapfnRv32iCOracle<'a> {
 
     fn determine_stack_spill(&self, args: &Vec<Layout>) -> usize {
         match self.determine_argument_slots(args).last() {
-            Some(ArgumentSlot::Stacked(offset, width)) => {
+            Some(ArgumentSlot::Stacked(offset, width, _)) => {
                 // We pass by reference for arguments larger than two pointers
                 assert!(*width <= 8);
                 if *width <= 4 {
@@ -319,20 +339,20 @@ impl<'a> EncapfnABIOracle for EncapfnRv32iCOracle<'a> {
                     *offset + 2
                 }
             }
-            Some(ArgumentSlot::ArgumentRegister(_, _)) => 0,
+            Some(ArgumentSlot::ArgumentRegister(_, _, _)) => 0,
             None => 0,
         }
     }
 
     fn argument_slot_type(&self, arg_slot: ArgumentSlot) -> TokenStream {
         match arg_slot {
-            ArgumentSlot::ArgumentRegister(idx, _) => {
+            ArgumentSlot::ArgumentRegister(idx, _, _) => {
                 let reg_type = format_ident!("AREG{}", idx);
                 quote! {
                     ::encapfn::abi::calling_convention::#reg_type<::encapfn::abi::rv32i_c::Rv32iCABI>
                 }
             }
-            ArgumentSlot::Stacked(offset, _) => {
+            ArgumentSlot::Stacked(offset, _, _) => {
                 let offset_bytes = offset * 8;
                 quote! {
                     ::encapfn::abi::calling_convention::Stacked<#offset_bytes, ::encapfn::abi::rv32i_c::Rv32iCABI>
@@ -381,15 +401,23 @@ impl<'a> EncapfnABIOracle for EncapfnSysVAMD64Oracle<'a> {
             // No matter what, place the argument at this index. In the System-V
             // AMD64 ABI we have 6 argument registers available. Either place it
             // in one of those, or spill on the stack:
-            let width = if arg.size > 2 * PTR_SIZE {
-                PTR_SIZE
+            let (width, pass_by_ref) = if arg.size > 2 * PTR_SIZE {
+                (PTR_SIZE, true)
             } else {
-                arg.size
+                (arg.size, false)
             };
             if let Some(stack_offset) = ptr_offset.checked_sub(6) {
-                slots.push(ArgumentSlot::Stacked(stack_offset, width));
+                slots.push(ArgumentSlot::Stacked(
+                    stack_offset,
+                    width,
+                    pass_by_ref,
+                ));
             } else {
-                slots.push(ArgumentSlot::ArgumentRegister(ptr_offset, width));
+                slots.push(ArgumentSlot::ArgumentRegister(
+                    ptr_offset,
+                    width,
+                    pass_by_ref,
+                ));
             }
 
             // Now, if the argument as twice the pointer size, increment
@@ -406,7 +434,7 @@ impl<'a> EncapfnABIOracle for EncapfnSysVAMD64Oracle<'a> {
 
     fn determine_stack_spill(&self, args: &Vec<Layout>) -> usize {
         match self.determine_argument_slots(args).last() {
-            Some(ArgumentSlot::Stacked(offset, width)) => {
+            Some(ArgumentSlot::Stacked(offset, width, _)) => {
                 // We pass by reference for arguments larger than two pointers
                 assert!(*width <= 8);
                 if *width <= 4 {
@@ -415,20 +443,20 @@ impl<'a> EncapfnABIOracle for EncapfnSysVAMD64Oracle<'a> {
                     *offset + 2
                 }
             }
-            Some(ArgumentSlot::ArgumentRegister(_, _)) => 0,
+            Some(ArgumentSlot::ArgumentRegister(_, _, _)) => 0,
             None => 0,
         }
     }
 
     fn argument_slot_type(&self, arg_slot: ArgumentSlot) -> TokenStream {
         match arg_slot {
-            ArgumentSlot::ArgumentRegister(idx, _) => {
+            ArgumentSlot::ArgumentRegister(idx, _, _) => {
                 let reg_type = format_ident!("AREG{}", idx);
                 quote! {
                     ::encapfn::abi::calling_convention::#reg_type<::encapfn::abi::sysv_amd64::SysVAMD64ABI>
                 }
             }
-            ArgumentSlot::Stacked(offset, _) => {
+            ArgumentSlot::Stacked(offset, _, _) => {
                 let offset_bytes = offset * 8;
                 quote! {
                     ::encapfn::abi::calling_convention::Stacked<#offset_bytes, ::encapfn::abi::sysv_amd64::SysVAMD64ABI>
