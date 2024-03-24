@@ -1194,10 +1194,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
 
     /// Enter the code generation phase, invoke the given callback `cb`, and
     /// leave the code generation phase.
-    pub(crate) fn gen<F, Out>(
-        &mut self,
-        cb: F,
-    ) -> Result<Out, CodegenError>
+    pub(crate) fn gen<F, Out>(&mut self, cb: F) -> Result<Out, CodegenError>
     where
         F: FnOnce(&Self) -> Result<Out, CodegenError>,
     {
@@ -2149,7 +2146,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
     }
 
     pub(crate) fn into_options(self) -> BindgenOptions {
-	self.options
+        self.options
     }
 
     /// Get the encapfn context.
@@ -2161,7 +2158,7 @@ If you encounter an error missing from this list, please file an issue or a PR!"
 
     /// Get the target information.
     pub(crate) fn target_info(&self) -> &clang::TargetInfo {
-	&self.target_info
+        &self.target_info
     }
 
     /// Tokenizes a namespace cursor in order to get the name and kind of the
