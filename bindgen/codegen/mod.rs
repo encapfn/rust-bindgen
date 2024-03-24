@@ -4492,6 +4492,7 @@ impl CodeGenerator for Function {
                     impls.push(quote! {
 			    // TODO: collect all of these as a top-level trait?
 			    // TODO: document safety. This is safe because the constructor of the NopRt is unsafe!
+                            #[inline]
 			    fn #ident(
 				&self,
 				#( #args, )*
@@ -4513,8 +4514,9 @@ impl CodeGenerator for Function {
 
 				let addr = self.rt()
 				    .lookup_symbol(#symbol_table_idx, &self.symbols)
-				    .expect(&format!("Symbol for function {} at index {} into symbol table state not found!", #function_name, #symbol_table_idx));
-				println!("{}, at resolved addr {:?}", #msg, addr);
+                                    .unwrap();
+				    //.expect(&format!("Symbol for function {} at index {} into symbol table state not found!", #function_name, #symbol_table_idx));
+				//println!("{}, at resolved addr {:?}", #msg, addr);
 				unsafe { #ident_int::<RT>(#( #arg_idents, )* self.rt(), addr) }
 			    }
 			});

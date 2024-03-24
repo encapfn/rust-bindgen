@@ -333,8 +333,9 @@ impl<'a> EncapfnABIOracle for EncapfnRv32iCOracle<'a> {
                 }
             }
             ArgumentSlot::Stacked(offset, _) => {
+                let offset_bytes = offset * 8;
                 quote! {
-                    ::encapfn::abi::calling_convention::Stacked<#offset, ::encapfn::abi::rv32i_c::Rv32iCABI>
+                    ::encapfn::abi::calling_convention::Stacked<#offset_bytes, ::encapfn::abi::rv32i_c::Rv32iCABI>
                 }
             }
         }
@@ -428,8 +429,9 @@ impl<'a> EncapfnABIOracle for EncapfnSysVAMD64Oracle<'a> {
                 }
             }
             ArgumentSlot::Stacked(offset, _) => {
+                let offset_bytes = offset * 8;
                 quote! {
-                    ::encapfn::abi::calling_convention::Stacked<#offset, ::encapfn::abi::sysv_amd64::SysVAMD64ABI>
+                    ::encapfn::abi::calling_convention::Stacked<#offset_bytes, ::encapfn::abi::sysv_amd64::SysVAMD64ABI>
                 }
             }
         }
