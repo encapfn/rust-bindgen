@@ -4374,23 +4374,34 @@ impl CodeGenerator for Function {
                     ) #ret;
                 });
 
-                // // Always generate dummy bindings for the GenericABI:
-                // encapfn_context.abi_trait_implementations
-                //     .borrow_mut()
-                //     .entry("MockRt".to_string())
-                //     .or_insert_with(|| (quote! { ::encapfn::rt::mock::MockRt }, vec![]))
-                //     .1
-                //     .push(quote! {
-                // 	// TODO: collect all of these as a top-level trait?
-                // 	// TODO: document safety. This is safe because the constructor of the NopRt is unsafe!
-                // 	fn #ident(
-                // 	    &self,
-                // 	    #( #args, )*
-                // 	    _access_scope: &mut ::encapfn::types::AccessScope<ID>,
-                // 	) #ret {
-                // 	    unsafe { self::#ident(#( #arg_idents ),*) }
-                // 	}
-                //     });
+                let mut abi_trait_impls_borrow =
+                    encapfn_context.abi_trait_implementations.borrow_mut();
+
+                let abi_trait_impl = abi_trait_impls_borrow
+			.entry("Mock".to_string()).or_insert_with(|| (Box::new(|lib_ident, rt_wrapper_ident, _rt_constraints, impls| {
+			    quote! {
+				impl<ID: ::encapfn::branding::EFID> #lib_ident<ID, ::encapfn::rt::mock::MockRt<ID>, ::encapfn::abi::GenericABI> for #rt_wrapper_ident<'_, ID, ::encapfn::rt::mock::MockRt<ID>> {
+				    type RT = ::encapfn::rt::mock::MockRt<ID>;
+
+				    fn rt(&self) -> &Self::RT {
+					&self.rt
+				    }
+
+				    #( #impls )*
+				}
+			    }
+			}), vec![], vec![]));
+
+                let (_, _, ref mut impls) = abi_trait_impl;
+                impls.push(quote! {
+                    fn #ident(
+                        &self,
+                        #( #args, )*
+                        _access_scope: &mut ::encapfn::types::AccessScope<ID>,
+                    ) #ret {
+                        unsafe { self::#ident(#( #arg_idents ),*) }
+                    }
+                });
 
                 // If we do have an oracle, also generate platform-dependent bindings:
                 if let Some(ref oracle) = oracle {
@@ -4427,9 +4438,6 @@ impl CodeGenerator for Function {
                         oracle.argument_slot_type(*runtime_argument_slot);
                     let stack_spill =
                         oracle.determine_stack_spill(&argument_layouts);
-
-                    let mut abi_trait_impls_borrow =
-                        encapfn_context.abi_trait_implementations.borrow_mut();
 
                     let abi_trait_impl = abi_trait_impls_borrow
 			.entry("SysVAMD64".to_string()).or_insert_with(|| (Box::new(|lib_ident, rt_wrapper_ident, rt_constraints, impls| {
