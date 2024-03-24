@@ -4515,7 +4515,7 @@ impl CodeGenerator for Function {
 				    .lookup_symbol(#symbol_table_idx, &self.symbols)
 				    .expect(&format!("Symbol for function {} at index {} into symbol table state not found!", #function_name, #symbol_table_idx));
 				println!("{}, at resolved addr {:?}", #msg, addr);
-				unsafe { #ident_int::<RT>(#( #arg_idents ),* self.rt(), addr) }
+				unsafe { #ident_int::<RT>(#( #arg_idents, )* self.rt(), addr) }
 			    }
 			});
 
