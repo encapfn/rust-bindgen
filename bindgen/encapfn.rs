@@ -197,7 +197,8 @@ impl EncapfnContext {
         abi: ABIKind,
     ) -> Option<Box<dyn EncapfnABIOracle + 'a>> {
         match (triple, abi) {
-            ("riscv32-unknown-unknown", ABIKind::GenericItanium) => {
+            ("riscv32-unknown-unknown", ABIKind::GenericItanium) |
+            ("riscv32-unknown-none-elf", ABIKind::GenericItanium) => {
                 Some(Box::new(EncapfnRv32iCOracle::new(ctx)))
             }
 
