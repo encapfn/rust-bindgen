@@ -4306,6 +4306,9 @@ impl CodeGenerator for Function {
             }
         };
 
+        // let ret_or_unit = if ret.is_empty() { quote! { () } } else { ret.clone() };
+        let ret_or_unit = utils::fnsig_return_ty_no_arrow(ctx, signature);
+
         if let Some(encapfn_context) = ctx.encapfn_context() {
             // // Check whether this symbol is exported with a given encapfn
             // // ID, otherwise skip it!
@@ -4371,7 +4374,7 @@ impl CodeGenerator for Function {
                     &self,
                     #( #args, )*
                     access_scope: &mut ::encapfn::types::AccessScope<ID>,
-                    ) #ret;
+                    ) -> ::encapfn::EFResult<#ret_or_unit>;
                 });
 
                 let mut abi_trait_impls_borrow =
@@ -4398,8 +4401,8 @@ impl CodeGenerator for Function {
                         &self,
                         #( #args, )*
                         _access_scope: &mut ::encapfn::types::AccessScope<ID>,
-                    ) #ret {
-                        unsafe { self::#ident(#( #arg_idents ),*) }
+                    ) -> ::encapfn::EFResult<#ret_or_unit> {
+                        ::encapfn::EFResult::Ok(::encapfn::types::EFCopy::new(unsafe { self::#ident(#( #arg_idents ),*) }))
                     }
                 });
 
@@ -4493,16 +4496,27 @@ impl CodeGenerator for Function {
                         .unwrap();
 
                     let mut wrapped_invocation = quote! {
-                        unsafe {
-                            #ident_int::<RT>(
-                                #( #arg_idents, )*
-                                self.rt(),
-                                self.rt()
-                                    .lookup_symbol(#symbol_table_idx, &self.symbols)
-                                    .unwrap(),
-                            )
-                        }
-                    };
+                    // TODO: choose unique name!
+                    let ef_sym = self.rt().lookup_symbol(#symbol_table_idx, &self.symbols).unwrap();
+                    self.rt().execute(move || {
+                        let mut ef_res = <
+                        <RT as ::encapfn::rt::sysv_amd64::SysVAMD64BaseRt>::InvokeRes<#ret_or_unit>
+                        as ::encapfn::rt::sysv_amd64::SysVAMD64InvokeRes<RT, #ret_or_unit>
+                            >::new();
+
+                                    unsafe {
+                        #ident_int::<RT>(
+                                            #( #arg_idents, )*
+                                            self.rt(),
+                            ef_sym,
+                            &mut ef_res,
+                        );
+                                    }
+
+                        // TODO: figure out if registers / stacked:
+                        ::encapfn::rt::sysv_amd64::SysVAMD64InvokeRes::<RT, #ret_or_unit>::into_result_stacked(ef_res, self.rt())
+                    })
+                            };
 
                     let mut wrapped_args = vec![];
 
@@ -4551,11 +4565,11 @@ impl CodeGenerator for Function {
                             &self,
                             #( #args, )*
                             _access_scope: &mut ::encapfn::types::AccessScope<ID>,
-                        ) #ret {
+                        ) -> ::encapfn::EFResult<#ret_or_unit> {
                             #[naked]
                             unsafe extern "C" fn #ident_int<
                                 RT: ::encapfn::rt::sysv_amd64::SysVAMD64Rt<#stack_spill, #runtime_argument_slot_type>
-                            >(#( #wrapped_args, )* _rt: &RT, _fnptr: *const ()) #ret {
+                            >(#( #wrapped_args, )* _rt: &RT, _fnptr: *const (), _resptr: &mut RT::InvokeRes<#ret_or_unit>) {
                                 core::arch::asm!(
                                     "
                                     lea r10, [rip + {invoke}]
@@ -5526,6 +5540,20 @@ pub(crate) mod utils {
                 quote! {}
             }
             ty => quote! { -> #ty },
+        }
+    }
+
+    pub(crate) fn fnsig_return_ty_no_arrow(
+        ctx: &BindgenContext,
+        sig: &FunctionSig,
+    ) -> proc_macro2::TokenStream {
+        match fnsig_return_ty_internal(ctx, sig) {
+            syn::Type::Tuple(syn::TypeTuple { elems, .. })
+                if elems.is_empty() =>
+            {
+                quote! { () }
+            }
+            ty => quote! { #ty },
         }
     }
 
