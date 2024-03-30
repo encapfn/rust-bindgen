@@ -4408,25 +4408,60 @@ impl CodeGenerator for Function {
 
                 // If we do have an oracle, also generate platform-dependent bindings:
                 if let Some(ref oracle) = oracle {
+                    // Before we calculate the registers that arguments will be passed
+                    // in, we need to first determine whether the return value
+                    // will be passed by invisible pointer (as the first function
+                    // parameter, or if it is encoded in registers). For this,
+                    // determine whether the size of the return value type is
+                    // larger than two pointer widths. In that case, the return
+                    // value MUST be passed in memory.
+                    //
+                    // TODO: this test is not perfect, there are other occasions
+                    // when the return value gets moved into memory, and yet
+                    // other types that are passed in registers (e.g., AVX regs)
+                    // and not on memory, despite exceeding this size check.
+                    let (ret_size, ret_align, ret_by_ref) = if ret.is_empty() {
+                        // For unit (`()`) return types (translated from c_void):
+                        (0, 0, false)
+                    } else {
+                        let ty = ctx.resolve_type(signature.return_type());
+                        let layout = ty.layout(&ctx).expect(&format!(
+                            "Unable to determine layout of return type {:?}",
+                            ty
+                        ));
+                        (layout.size, layout.align, layout.size > 16)
+                    };
+
+                    // Now, if we do pass the return value by reference, we'll
+                    // need to shift all other arguments by one registers.
+                    // Build an appropriate base iterator here:
+                    let ptr_layout = Layout {
+                        // Invisible return value pointer:
+                        size: ctx.target_pointer_size(),
+                        align: ctx.target_pointer_size(),
+                        packed: false,
+                    };
+
+                    let ret_by_ref_arg_layouts: Vec<Layout> = if ret_by_ref {
+                        vec![ptr_layout.clone()]
+                    } else {
+                        vec![]
+                    };
+
                     // Determine the argument register or stack offset of each
                     // of the function arguments, with the Encapsulated
                     // Functions arguments appended:
                     let argument_ef_slots = oracle.determine_argument_slots(
-                        &argument_layouts
+                        &ret_by_ref_arg_layouts
                             .iter()
+                            .chain(argument_layouts.iter())
                             .chain(&[
                                 // Runtime parameter, simply a pointer:
-                                Layout {
-                                    size: ctx.target_pointer_size(),
-                                    align: ctx.target_pointer_size(),
-                                    packed: false,
-                                },
-                                // Access scope parameter, also just a pointer:
-                                Layout {
-                                    size: ctx.target_pointer_size(),
-                                    align: ctx.target_pointer_size(),
-                                    packed: false,
-                                },
+                                ptr_layout.clone(),
+                                // Function pointer:
+                                ptr_layout.clone(),
+                                // InvokeRes reference, also just pointer:
+                                ptr_layout.clone(),
                             ])
                             .cloned()
                             .collect(),
@@ -4434,13 +4469,16 @@ impl CodeGenerator for Function {
 
                     // Provide access to the runtime and access scope parameters:
                     let runtime_argument_slot =
-                        &argument_ef_slots[argument_ef_slots.len() - 2];
-                    let _access_scope_argument_slot =
-                        &argument_ef_slots[argument_ef_slots.len() - 1];
+                        &argument_ef_slots[argument_ef_slots.len() - 3];
                     let runtime_argument_slot_type =
                         oracle.argument_slot_type(*runtime_argument_slot);
-                    let stack_spill =
-                        oracle.determine_stack_spill(&argument_layouts);
+                    let stack_spill = oracle.determine_stack_spill(
+                        &ret_by_ref_arg_layouts
+                            .iter()
+                            .chain(argument_layouts.iter())
+                            .cloned()
+                            .collect::<Vec<_>>(),
+                    );
 
                     let abi_trait_impl = abi_trait_impls_borrow
                         .entry("SysVAMD64".to_string()).or_insert_with(|| (Box::new(|lib_ident, rt_wrapper_ident, rt_constraints, impls| {
@@ -4495,33 +4533,74 @@ impl CodeGenerator for Function {
                         .get(&ident.to_string())
                         .unwrap();
 
-                    let mut wrapped_invocation = quote! {
-                    // TODO: choose unique name!
-                    let ef_sym = self.rt().lookup_symbol(#symbol_table_idx, &self.symbols).unwrap();
-                    self.rt().execute(move || {
-                        let mut ef_res = <
-                        <RT as ::encapfn::rt::sysv_amd64::SysVAMD64BaseRt>::InvokeRes<#ret_or_unit>
-                        as ::encapfn::rt::sysv_amd64::SysVAMD64InvokeRes<RT, #ret_or_unit>
-                            >::new();
+                    let (mut wrapped_invocation, invisible_ret_ref_arg) =
+                        if ret_by_ref {
+                            (
+                                quote! {
+                                    self.rt.allocate_stacked_untracked(
+                                        ::core::alloc::Layout::from_size_align(#ret_size, #ret_align).unwrap(),
+                                        |ef_ret_ptr| {
+                                            // TODO: choose unique name!
+                                            let ef_sym = self.rt().lookup_symbol(#symbol_table_idx, &self.symbols).unwrap();
+                                            let mut ef_res = <
+                                                <RT as ::encapfn::rt::sysv_amd64::SysVAMD64BaseRt>::InvokeRes<#ret_or_unit>
+                                                as ::encapfn::rt::sysv_amd64::SysVAMD64InvokeRes<RT, #ret_or_unit>
+                                            >::new();
 
-                                    unsafe {
-                        #ident_int::<RT>(
-                                            #( #arg_idents, )*
-                                            self.rt(),
-                            ef_sym,
-                            &mut ef_res,
-                        );
-                                    }
+                                            let ef_res_borrowed = &mut ef_res;
+                                            self.rt().execute(move || {
+                                                unsafe {
+                                                    #ident_int::<RT>(
+                                                        ef_ret_ptr as *mut #ret_or_unit,
+                                                        #( #arg_idents, )*
+                                                        self.rt(),
+                                                        ef_sym,
+                                                        ef_res_borrowed,
+                                                    );
+                                                }
+                                            });
 
-                        // TODO: figure out if registers / stacked:
-                        ::encapfn::rt::sysv_amd64::SysVAMD64InvokeRes::<RT, #ret_or_unit>::into_result_stacked(ef_res, self.rt())
-                    })
-                            };
+                                            unsafe {
+                                                ::encapfn::rt::sysv_amd64::SysVAMD64InvokeRes::<RT, #ret_or_unit>::into_result_stacked(
+                                                    ef_res, self.rt(), ef_ret_ptr as *mut #ret_or_unit)
+                                            }
+                                    }).unwrap()
+                                },
+                                quote! { _: *mut #ret_or_unit, },
+                            )
+                        } else {
+                            (
+                                quote! {
+                                    // TODO: choose unique name!
+                                    let ef_sym = self.rt().lookup_symbol(#symbol_table_idx, &self.symbols).unwrap();
+                                    let mut ef_res = <
+                                        <RT as ::encapfn::rt::sysv_amd64::SysVAMD64BaseRt>::InvokeRes<#ret_or_unit>
+                                        as ::encapfn::rt::sysv_amd64::SysVAMD64InvokeRes<RT, #ret_or_unit>
+                                    >::new();
+
+                                    let ef_res_borrowed = &mut ef_res;
+                                    self.rt().execute(move || {
+                                        unsafe {
+                                            #ident_int::<RT>(
+                                                #( #arg_idents, )*
+                                                self.rt(),
+                                                ef_sym,
+                                                ef_res_borrowed,
+                                            );
+                                        }
+                                    });
+
+                                    ::encapfn::rt::sysv_amd64::SysVAMD64InvokeRes::<RT, #ret_or_unit>::into_result_registers(
+                                        ef_res, self.rt())
+                                },
+                                quote! {},
+                            )
+                        };
 
                     let mut wrapped_args = vec![];
 
                     for ((slot, arg_ident), (_arg_name, arg_ty)) in
-                        argument_ef_slots[..argument_ef_slots.len() - 2]
+                        argument_ef_slots[..argument_ef_slots.len() - 3]
                             .iter()
                             .zip(arg_idents.iter())
                             .zip(signature.argument_types())
@@ -4569,7 +4648,13 @@ impl CodeGenerator for Function {
                             #[naked]
                             unsafe extern "C" fn #ident_int<
                                 RT: ::encapfn::rt::sysv_amd64::SysVAMD64Rt<#stack_spill, #runtime_argument_slot_type>
-                            >(#( #wrapped_args, )* _rt: &RT, _fnptr: *const (), _resptr: &mut RT::InvokeRes<#ret_or_unit>) {
+                            >(
+                                #invisible_ret_ref_arg
+                                #( #wrapped_args, )*
+                                _rt: &RT,
+                                _fnptr: *const (),
+                                _resptr: &mut RT::InvokeRes<#ret_or_unit>
+                            ) {
                                 core::arch::asm!(
                                     "
                                     lea r10, [rip + {invoke}]
