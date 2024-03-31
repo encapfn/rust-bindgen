@@ -1,12 +1,12 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
+use std::str::FromStr;
 
-use proc_macro2::{Ident, TokenStream};
+use proc_macro2::{Ident, Literal, TokenStream};
 use serde::Deserialize;
 
 use crate::clang::ABIKind;
-use crate::ir::context::TypeId;
 use crate::ir::layout::Layout;
 use crate::BindgenContext;
 
@@ -62,12 +62,12 @@ impl EncapfnContext {
         )
         .unwrap();
 
-        let mut symbol_table = config
+        let symbol_table = config
             .functions
             .iter()
             .map(|(name, _)| name.clone())
             .collect::<Vec<_>>();
-        let mut symbol_table_offsets = symbol_table
+        let symbol_table_offsets = symbol_table
             .iter()
             .enumerate()
             .map(|(idx, name)| (name.clone(), idx))
@@ -82,11 +82,23 @@ impl EncapfnContext {
     }
 
     pub fn prologue(&self) -> TokenStream {
+        fn symbol_to_cstr_lit(sym: &str) -> TokenStream {
+            // quote doesn't have first-class CStr support, so need to
+            // construct ourselves using a `Verbatim` literal. We are
+            // conservative in the symbol names we accept for now, to avoid
+            // generating invalid syntax:
+            assert!(sym.chars().all(|c| {
+                c.is_ascii_alphanumeric() || c == '_' || c == '-'
+            }));
+            let lit = <Literal as FromStr>::from_str(&format!("c\"{}\"", sym))
+                .unwrap();
+            quote! { #lit }
+        }
+
         let wrapper_trait_ident =
             format_ident!("{}", &self.config.wrapper_name);
         let wrapper_type_ident =
             format_ident!("{}Rt", &self.config.wrapper_name);
-        let bundle_ident = format_ident!("{}Bundle", &self.config.wrapper_name);
         let fixed_offset_function_table_ident =
             format_ident!("{}FixedFntab", &self.config.wrapper_name);
         let function_table_ident =
@@ -127,10 +139,16 @@ impl EncapfnContext {
             while fixed_function_table_sequence.len() < fntab_id as usize {
                 fixed_function_table_sequence.push(quote! { None });
             }
-            fixed_function_table_sequence.push(quote! { Some(#symbol) });
+
+            let cstr_lit = symbol_to_cstr_lit(symbol);
+            fixed_function_table_sequence.push(quote! { Some(#cstr_lit) });
         }
 
-        let (_, function_table_sequence) = &self.symbol_table_offsets;
+        let (_, function_table_sequence_str) = &self.symbol_table_offsets;
+        let function_table_sequence = function_table_sequence_str
+            .iter()
+            .map(|symbol| symbol_to_cstr_lit(symbol))
+            .collect::<Vec<_>>();
         let function_table_length = function_table_sequence.len();
 
         quote! {
@@ -139,51 +157,54 @@ impl EncapfnContext {
             // of this for different ABIs:
             // https://geo-ant.github.io/blog/2021/mutually-exclusive-traits-rust/
             pub trait #wrapper_trait_ident<
-            ID: ::encapfn::branding::EFID,
-                    RT: ::encapfn::rt::EncapfnRt<ID = ID>,
-                    ABI = <RT as ::encapfn::rt::EncapfnRt>::ABI
+                ID: ::encapfn::branding::EFID,
+                RT: ::encapfn::rt::EncapfnRt<ID = ID>,
+                ABI = <RT as ::encapfn::rt::EncapfnRt>::ABI
             > {
-            type RT: ::encapfn::rt::EncapfnRt;
+                type RT: ::encapfn::rt::EncapfnRt;
 
-            fn rt(&self) -> &Self::RT;
+                fn rt(&self) -> &Self::RT;
 
-            #( #function_definitions )*
+                #( #function_definitions )*
             }
 
             pub const #function_table_ident: [
-            &'static str; #function_table_length
+                &'static ::core::ffi::CStr; #function_table_length
             ] = [ #( #function_table_sequence ),* ];
 
             pub const #fixed_offset_function_table_ident: [
-            Option<&'static str>; #fixed_function_table_length
+                Option<&'static ::core::ffi::CStr>; #fixed_function_table_length
             ] = [ #( #fixed_function_table_sequence ),* ];
 
             pub struct #wrapper_type_ident<
-            'a,
-            ID: ::encapfn::branding::EFID,
+                'a,
+                ID: ::encapfn::branding::EFID,
                 RT: ::encapfn::rt::EncapfnRt,
             > {
-            rt: &'a RT,
-            symbols: RT::SymbolTableState<#function_table_length, #fixed_function_table_length>,
-            _id: ::core::marker::PhantomData<ID>,
+                rt: &'a RT,
+                symbols: RT::SymbolTableState<#function_table_length, #fixed_function_table_length>,
+                _id: ::core::marker::PhantomData<ID>,
             }
 
             impl<
-            'a,
-            ID: ::encapfn::branding::EFID,
+                'a,
+                ID: ::encapfn::branding::EFID,
                 RT: ::encapfn::rt::EncapfnRt,
             > #wrapper_type_ident<'a, ID, RT> {
-            pub fn new(rt: &'a RT) -> Option<Self> {
-                if let Some(symbols) = rt.resolve_symbols(&#function_table_ident, &#fixed_offset_function_table_ident) {
-                Some(#wrapper_type_ident {
-                    rt: rt,
-                    symbols,
-                    _id: ::core::marker::PhantomData,
-                })
-                } else {
-                None
+                pub fn new(rt: &'a RT) -> Option<Self> {
+                    if let Some(symbols) = rt.resolve_symbols(
+                        &#function_table_ident,
+                        &#fixed_offset_function_table_ident
+                    ) {
+                        Some(#wrapper_type_ident {
+                            rt: rt,
+                            symbols,
+                            _id: ::core::marker::PhantomData,
+                        })
+                    } else {
+                        None
+                    }
                 }
-            }
             }
 
             #( #abi_trait_implementations )*
@@ -218,6 +239,7 @@ pub enum ArgumentSlot {
 }
 
 impl ArgumentSlot {
+    #[allow(unused)]
     pub fn get_width(&self) -> usize {
         match self {
             ArgumentSlot::ArgumentRegister(_, w, _) => *w,
@@ -243,12 +265,12 @@ pub trait EncapfnABIOracle {
 }
 
 pub struct EncapfnRv32iCOracle<'a> {
-    ctx: &'a BindgenContext,
+    _ctx: &'a BindgenContext,
 }
 
 impl<'a> EncapfnRv32iCOracle<'a> {
     pub fn new(ctx: &'a BindgenContext) -> Self {
-        EncapfnRv32iCOracle { ctx }
+        EncapfnRv32iCOracle { _ctx: ctx }
     }
 }
 
@@ -365,12 +387,12 @@ impl<'a> EncapfnABIOracle for EncapfnRv32iCOracle<'a> {
 
 // TODO: currently just copied from rv32i, actually implemented for SysV-AMD64!
 pub struct EncapfnSysVAMD64Oracle<'a> {
-    ctx: &'a BindgenContext,
+    _ctx: &'a BindgenContext,
 }
 
 impl<'a> EncapfnSysVAMD64Oracle<'a> {
     pub fn new(ctx: &'a BindgenContext) -> Self {
-        EncapfnSysVAMD64Oracle { ctx }
+        EncapfnSysVAMD64Oracle { _ctx: ctx }
     }
 }
 

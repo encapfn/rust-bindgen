@@ -18,8 +18,6 @@ use self::dyngen::DynamicItems;
 use self::helpers::attributes;
 use self::struct_layout::StructLayoutTracker;
 
-use super::BindgenOptions;
-
 use crate::callbacks::{DeriveInfo, FieldInfo, TypeKind as DeriveTypeKind};
 use crate::codegen::error::Error;
 use crate::ir::analysis::{HasVtable, Sizedness};
@@ -4314,7 +4312,7 @@ impl CodeGenerator for Function {
             // // ID, otherwise skip it!
             // let fn_name = ident.span().source_text().expect("Function identifier has no source text!");
 
-            if let Some(fn_cfg) =
+            if let Some(_fn_cfg) =
                 encapfn_context.config.functions.get(&ident.to_string())
             {
                 // This is a function that is accessible in the encapsulated
@@ -4362,11 +4360,6 @@ impl CodeGenerator for Function {
 
                 // TODO: verify that ABI is "C" and no attributes are passed!
 
-                let encapfn_function_id = fn_cfg.fntab_id;
-                let wrapper_trait_ident =
-                    format_ident!("{}", &encapfn_context.config.wrapper_name);
-                let wrapper_type_ident =
-                    format_ident!("{}Rt", &encapfn_context.config.wrapper_name);
                 let ident_int = format_ident!("{}_int", ident);
 
                 encapfn_context.trait_functions.borrow_mut().push(quote! {
@@ -4381,9 +4374,13 @@ impl CodeGenerator for Function {
                     encapfn_context.abi_trait_implementations.borrow_mut();
 
                 let abi_trait_impl = abi_trait_impls_borrow
-                        .entry("Mock".to_string()).or_insert_with(|| (Box::new(|lib_ident, rt_wrapper_ident, _rt_constraints, impls| {
+                    .entry("Mock".to_string()).or_insert_with(|| (
+                        Box::new(|lib_ident, rt_wrapper_ident, _rt_constraints, impls| {
                             quote! {
-                                impl<ID: ::encapfn::branding::EFID> #lib_ident<ID, ::encapfn::rt::mock::MockRt<ID>, ::encapfn::abi::GenericABI> for #rt_wrapper_ident<'_, ID, ::encapfn::rt::mock::MockRt<ID>> {
+                                impl<ID: ::encapfn::branding::EFID>
+                                    #lib_ident<ID, ::encapfn::rt::mock::MockRt<ID>, ::encapfn::abi::GenericABI>
+                                    for #rt_wrapper_ident<'_, ID, ::encapfn::rt::mock::MockRt<ID>>
+                                {
                                     type RT = ::encapfn::rt::mock::MockRt<ID>;
 
                                     fn rt(&self) -> &Self::RT {
@@ -4402,7 +4399,9 @@ impl CodeGenerator for Function {
                         #( #args, )*
                         _access_scope: &mut ::encapfn::types::AccessScope<ID>,
                     ) -> ::encapfn::EFResult<#ret_or_unit> {
-                        ::encapfn::EFResult::Ok(::encapfn::types::EFCopy::new(unsafe { self::#ident(#( #arg_idents ),*) }))
+                        ::encapfn::EFResult::Ok(
+                            ::encapfn::types::EFCopy::new(
+                                unsafe { self::#ident(#( #arg_idents ),*) }))
                     }
                 });
 
@@ -4481,35 +4480,39 @@ impl CodeGenerator for Function {
                     );
 
                     let abi_trait_impl = abi_trait_impls_borrow
-                        .entry("SysVAMD64".to_string()).or_insert_with(|| (Box::new(|lib_ident, rt_wrapper_ident, rt_constraints, impls| {
-                            let lib_abirt_trait_ident = format_ident!("{}SysVAMD64Rt", lib_ident);
+                        .entry("SysVAMD64".to_string()).or_insert_with(|| (
+                            Box::new(|lib_ident, rt_wrapper_ident, rt_constraints, impls| {
+                                let lib_abirt_trait_ident = format_ident!("{}SysVAMD64Rt", lib_ident);
 
-                            quote! {
-                                trait #lib_abirt_trait_ident:
-                                    ::encapfn::rt::EncapfnRt<ABI = ::encapfn::abi::sysv_amd64::SysVAMD64ABI>
-                                    #( + #rt_constraints )*
-                                {}
+                                quote! {
+                                    trait #lib_abirt_trait_ident:
+                                        ::encapfn::rt::EncapfnRt<ABI = ::encapfn::abi::sysv_amd64::SysVAMD64ABI>
+                                        #( + #rt_constraints )*
+                                    {}
 
-                                impl<
-                                    RT: ::encapfn::rt::EncapfnRt<ABI = ::encapfn::abi::sysv_amd64::SysVAMD64ABI>
-                                    #( + #rt_constraints )*
-                                > #lib_abirt_trait_ident for RT
-                                {}
+                                    impl<
+                                        RT: ::encapfn::rt::EncapfnRt<ABI = ::encapfn::abi::sysv_amd64::SysVAMD64ABI>
+                                        #( + #rt_constraints )*
+                                    > #lib_abirt_trait_ident for RT
+                                    {}
 
-                                impl<ID: ::encapfn::branding::EFID, RT: #lib_abirt_trait_ident<ID = ID>>
-                                    #lib_ident<ID, RT, ::encapfn::abi::sysv_amd64::SysVAMD64ABI>
-                                    for #rt_wrapper_ident<'_, ID, RT>
-                                {
-                                    type RT = RT;
+                                    impl<ID: ::encapfn::branding::EFID, RT: #lib_abirt_trait_ident<ID = ID>>
+                                        #lib_ident<ID, RT, ::encapfn::abi::sysv_amd64::SysVAMD64ABI>
+                                        for #rt_wrapper_ident<'_, ID, RT>
+                                    {
+                                        type RT = RT;
 
-                                    fn rt(&self) -> &Self::RT {
-                                        &self.rt
+                                        fn rt(&self) -> &Self::RT {
+                                            &self.rt
+                                        }
+
+                                        #( #impls )*
                                     }
-
-                                    #( #impls )*
                                 }
-                            }
-                        }), vec![], vec![]));
+                            }),
+                            vec![],
+                            vec![]
+                        ));
 
                     let (_, ref mut rt_constraints, ref mut impls) =
                         abi_trait_impl;
@@ -4517,15 +4520,6 @@ impl CodeGenerator for Function {
                     rt_constraints.push(quote! {
                         ::encapfn::rt::sysv_amd64::SysVAMD64Rt<#stack_spill, #runtime_argument_slot_type>
                     });
-
-                    let msg = format!(
-                        "Invoking function {:?} with argument list {:?}, stack spill {} and arg slot {}",
-                        ident,
-                        args.iter().map(|ts| format!("{}", ts)).collect::<Vec<_>>(),
-                        stack_spill,
-                        runtime_argument_slot_type
-                    );
-                    let function_name = ident.to_string();
 
                     let symbol_table_idx = encapfn_context
                         .symbol_table_offsets
@@ -4656,10 +4650,8 @@ impl CodeGenerator for Function {
                                 _resptr: &mut RT::InvokeRes<#ret_or_unit>
                             ) {
                                 core::arch::asm!(
-                                    "
-                                    lea r10, [rip + {invoke}]
-                                    jmp r10
-                                    ",
+                                    "lea r10, [rip + {invoke}]",
+                                    "jmp r10",
                                     invoke = sym RT::invoke,
                                     options(noreturn),
                                 );
