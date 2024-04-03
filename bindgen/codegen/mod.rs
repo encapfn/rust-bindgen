@@ -4611,11 +4611,11 @@ impl CodeGenerator for Function {
                         if slot.pass_by_ref() {
                             wrapped_invocation = quote! {
                                 self.rt().allocate_stacked_untracked(
-                                    ::std::alloc::Layout::new::<#ty>(),
+                                    ::core::alloc::Layout::new::<#ty>(),
                                     // We deliberately alias the original argument name:
                                     move |#arg_ident_ptr: *mut u8| {
                                         // Move the argument into the allocated slot on the stack
-                                        unsafe { ::std::ptr::write(#arg_ident_ptr as *mut #ty, #arg_ident) };
+                                        unsafe { ::core::ptr::write(#arg_ident_ptr as *mut #ty, #arg_ident) };
                                         // Alias the original argument name:
                                         let #arg_ident: *const #ty = #arg_ident_ptr as *mut #ty as *const _;
 
