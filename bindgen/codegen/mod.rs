@@ -4531,7 +4531,7 @@ impl CodeGenerator for Function {
                         if ret_by_ref {
                             (
                                 quote! {
-                                    self.rt.allocate_stacked_untracked(
+                                    self.rt.allocate_stacked_untracked_mut(
                                         ::core::alloc::Layout::from_size_align(#ret_size, #ret_align).unwrap(),
                                         |ef_ret_ptr| {
                                             // TODO: choose unique name!
@@ -4610,7 +4610,7 @@ impl CodeGenerator for Function {
                         // stack and move the object into that slot:
                         if slot.pass_by_ref() {
                             wrapped_invocation = quote! {
-                                self.rt().allocate_stacked_untracked(
+                                self.rt().allocate_stacked_untracked_mut(
                                     ::core::alloc::Layout::new::<#ty>(),
                                     // We deliberately alias the original argument name:
                                     move |#arg_ident_ptr: *mut u8| {
