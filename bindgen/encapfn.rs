@@ -260,8 +260,12 @@ pub trait EncapfnABIOracle {
         -> Vec<ArgumentSlot>;
     fn determine_stack_spill(&self, args: &Vec<Layout>) -> usize;
     fn argument_slot_type(&self, arg_slot: ArgumentSlot) -> TokenStream;
-    // fn abi_label(&self) -> &'static str;
-    // fn abi_type(&self) -> TokenStream;
+    fn abi_label(&self) -> &'static str;
+    fn abi_type(&self) -> TokenStream;
+    fn rt_trait(&self) -> TokenStream;
+    fn rt_base_trait(&self) -> TokenStream;
+    fn invoke_res_trait(&self) -> TokenStream;
+    fn invoke_asm(&self) -> TokenStream;
 }
 
 pub struct EncapfnRv32iCOracle<'a> {
@@ -383,6 +387,33 @@ impl<'a> EncapfnABIOracle for EncapfnRv32iCOracle<'a> {
             }
         }
     }
+
+    fn abi_label(&self) -> &'static str {
+        "Rv32iC"
+    }
+
+    fn abi_type(&self) -> TokenStream {
+        quote! { ::encapfn::abi::rv32i_c::Rv32iCABI }
+    }
+
+    fn rt_trait(&self) -> TokenStream {
+        quote! { ::encapfn::rt::rv32i_c::Rv32iCRt }
+    }
+
+    fn rt_base_trait(&self) -> TokenStream {
+        quote! { ::encapfn::rt::rv32i_c::Rv32iCBaseRt }
+    }
+
+    fn invoke_res_trait(&self) -> TokenStream {
+        quote! { ::encapfn::rt::rv32i_c::Rv32iCInvokeRes }
+    }
+
+    fn invoke_asm(&self) -> TokenStream {
+        quote! {
+            "la t0, {invoke}",
+                "jr t0"
+        }
+    }
 }
 
 // TODO: currently just copied from rv32i, actually implemented for SysV-AMD64!
@@ -485,6 +516,33 @@ impl<'a> EncapfnABIOracle for EncapfnSysVAMD64Oracle<'a> {
                     ::encapfn::abi::calling_convention::Stacked<#offset_bytes, ::encapfn::abi::sysv_amd64::SysVAMD64ABI>
                 }
             }
+        }
+    }
+
+    fn abi_label(&self) -> &'static str {
+        "SysVAMD64"
+    }
+
+    fn abi_type(&self) -> TokenStream {
+        quote! { ::encapfn::abi::sysv_amd64::SysVAMD64ABI }
+    }
+
+    fn rt_trait(&self) -> TokenStream {
+        quote! { ::encapfn::rt::sysv_amd64::SysVAMD64Rt }
+    }
+
+    fn rt_base_trait(&self) -> TokenStream {
+        quote! { ::encapfn::rt::sysv_amd64::SysVAMD64BaseRt }
+    }
+
+    fn invoke_res_trait(&self) -> TokenStream {
+        quote! { ::encapfn::rt::sysv_amd64::SysVAMD64InokeRes }
+    }
+
+    fn invoke_asm(&self) -> TokenStream {
+        quote! {
+            "lea r10, [rip + {invoke}]",
+                "jmp r10"
         }
     }
 }

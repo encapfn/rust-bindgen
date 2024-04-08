@@ -4407,6 +4407,13 @@ impl CodeGenerator for Function {
 
                 // If we do have an oracle, also generate platform-dependent bindings:
                 if let Some(ref oracle) = oracle {
+                    let abi_label = oracle.abi_label();
+                    let invoke_asm = oracle.invoke_asm();
+                    let abi_type = oracle.abi_type();
+                    let rt_trait = oracle.rt_trait();
+                    let rt_base_trait = oracle.rt_base_trait();
+                    let invoke_res_trait = oracle.invoke_res_trait();
+
                     // Before we calculate the registers that arguments will be passed
                     // in, we need to first determine whether the return value
                     // will be passed by invisible pointer (as the first function
@@ -4480,24 +4487,24 @@ impl CodeGenerator for Function {
                     );
 
                     let abi_trait_impl = abi_trait_impls_borrow
-                        .entry("SysVAMD64".to_string()).or_insert_with(|| (
-                            Box::new(|lib_ident, rt_wrapper_ident, rt_constraints, impls| {
-                                let lib_abirt_trait_ident = format_ident!("{}SysVAMD64Rt", lib_ident);
+                        .entry(abi_label.to_string()).or_insert_with(move || (
+                            Box::new(move |lib_ident, rt_wrapper_ident, rt_constraints, impls| {
+                                let lib_abirt_trait_ident = format_ident!("{}{}Rt", lib_ident, abi_label);
 
                                 quote! {
                                     trait #lib_abirt_trait_ident:
-                                        ::encapfn::rt::EncapfnRt<ABI = ::encapfn::abi::sysv_amd64::SysVAMD64ABI>
+                                        ::encapfn::rt::EncapfnRt<ABI = #abi_type>
                                         #( + #rt_constraints )*
                                     {}
 
                                     impl<
-                                        RT: ::encapfn::rt::EncapfnRt<ABI = ::encapfn::abi::sysv_amd64::SysVAMD64ABI>
+                                        RT: ::encapfn::rt::EncapfnRt<ABI = #abi_type>
                                         #( + #rt_constraints )*
                                     > #lib_abirt_trait_ident for RT
                                     {}
 
                                     impl<ID: ::encapfn::branding::EFID, RT: #lib_abirt_trait_ident<ID = ID>>
-                                        #lib_ident<ID, RT, ::encapfn::abi::sysv_amd64::SysVAMD64ABI>
+                                        #lib_ident<ID, RT, #abi_type>
                                         for #rt_wrapper_ident<'_, ID, RT>
                                     {
                                         type RT = RT;
@@ -4518,7 +4525,7 @@ impl CodeGenerator for Function {
                         abi_trait_impl;
 
                     rt_constraints.push(quote! {
-                        ::encapfn::rt::sysv_amd64::SysVAMD64Rt<#stack_spill, #runtime_argument_slot_type>
+                        #rt_trait<#stack_spill, #runtime_argument_slot_type>
                     });
 
                     let symbol_table_idx = encapfn_context
@@ -4537,8 +4544,8 @@ impl CodeGenerator for Function {
                                             // TODO: choose unique name!
                                             let ef_sym = self.rt().lookup_symbol(#symbol_table_idx, &self.symbols).unwrap();
                                             let mut ef_res = <
-                                                <RT as ::encapfn::rt::sysv_amd64::SysVAMD64BaseRt>::InvokeRes<#ret_or_unit>
-                                                as ::encapfn::rt::sysv_amd64::SysVAMD64InvokeRes<RT, #ret_or_unit>
+                                                <RT as #rt_base_trait>::InvokeRes<#ret_or_unit>
+                                                as #invoke_res_trait<RT, #ret_or_unit>
                                             >::new();
 
                                             let ef_res_borrowed = &mut ef_res;
@@ -4555,7 +4562,7 @@ impl CodeGenerator for Function {
                                             });
 
                                             unsafe {
-                                                ::encapfn::rt::sysv_amd64::SysVAMD64InvokeRes::<RT, #ret_or_unit>::into_result_stacked(
+                                                #invoke_res_trait::<RT, #ret_or_unit>::into_result_stacked(
                                                     ef_res, self.rt(), ef_ret_ptr as *mut #ret_or_unit)
                                             }
                                     }).unwrap()
@@ -4568,8 +4575,8 @@ impl CodeGenerator for Function {
                                     // TODO: choose unique name!
                                     let ef_sym = self.rt().lookup_symbol(#symbol_table_idx, &self.symbols).unwrap();
                                     let mut ef_res = <
-                                        <RT as ::encapfn::rt::sysv_amd64::SysVAMD64BaseRt>::InvokeRes<#ret_or_unit>
-                                        as ::encapfn::rt::sysv_amd64::SysVAMD64InvokeRes<RT, #ret_or_unit>
+                                        <RT as #rt_base_trait>::InvokeRes<#ret_or_unit>
+                                        as #invoke_res_trait<RT, #ret_or_unit>
                                     >::new();
 
                                     let ef_res_borrowed = &mut ef_res;
@@ -4584,7 +4591,7 @@ impl CodeGenerator for Function {
                                         }
                                     });
 
-                                    ::encapfn::rt::sysv_amd64::SysVAMD64InvokeRes::<RT, #ret_or_unit>::into_result_registers(
+                                    #invoke_res_trait::<RT, #ret_or_unit>::into_result_registers(
                                         ef_res, self.rt())
                                 },
                                 quote! {},
@@ -4641,7 +4648,7 @@ impl CodeGenerator for Function {
                         ) -> ::encapfn::EFResult<#ret_or_unit> {
                             #[naked]
                             unsafe extern "C" fn #ident_int<
-                                RT: ::encapfn::rt::sysv_amd64::SysVAMD64Rt<#stack_spill, #runtime_argument_slot_type>
+                                RT: #rt_trait<#stack_spill, #runtime_argument_slot_type>
                             >(
                                 #invisible_ret_ref_arg
                                 #( #wrapped_args, )*
@@ -4650,8 +4657,7 @@ impl CodeGenerator for Function {
                                 _resptr: &mut RT::InvokeRes<#ret_or_unit>
                             ) {
                                 core::arch::asm!(
-                                    "lea r10, [rip + {invoke}]",
-                                    "jmp r10",
+                                    #invoke_asm,
                                     invoke = sym RT::invoke,
                                     options(noreturn),
                                 );
