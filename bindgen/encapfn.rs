@@ -16,9 +16,15 @@ pub struct EncapfnFunctionConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct EncapfnTypeConfig {}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct EncapfnConfig {
     pub wrapper_name: String,
+    #[serde(default)]
     pub functions: HashMap<String, EncapfnFunctionConfig>,
+    #[serde(default)]
+    pub types: HashMap<String, EncapfnTypeConfig>,
 }
 
 // #[derive(Debug)]

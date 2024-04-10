@@ -1308,6 +1308,7 @@ trait FieldCodegen<'a> {
         fields: &mut F,
         methods: &mut M,
         extra: Self::Extra,
+        field_names_types: &mut Vec<(proc_macro2::Ident, syn::Type)>,
     ) where
         F: Extend<proc_macro2::TokenStream>,
         M: Extend<proc_macro2::TokenStream>;
@@ -1328,6 +1329,7 @@ impl<'a> FieldCodegen<'a> for Field {
         fields: &mut F,
         methods: &mut M,
         _: (),
+        field_names_types: &mut Vec<(proc_macro2::Ident, syn::Type)>,
     ) where
         F: Extend<proc_macro2::TokenStream>,
         M: Extend<proc_macro2::TokenStream>,
@@ -1345,6 +1347,7 @@ impl<'a> FieldCodegen<'a> for Field {
                     fields,
                     methods,
                     (),
+                    field_names_types,
                 );
             }
             Field::Bitfields(ref unit) => {
@@ -1359,6 +1362,7 @@ impl<'a> FieldCodegen<'a> for Field {
                     fields,
                     methods,
                     (),
+                    field_names_types,
                 );
             }
         }
@@ -1403,6 +1407,7 @@ impl<'a> FieldCodegen<'a> for FieldData {
         fields: &mut F,
         methods: &mut M,
         _: (),
+        field_names_types: &mut Vec<(proc_macro2::Ident, syn::Type)>,
     ) where
         F: Extend<proc_macro2::TokenStream>,
         M: Extend<proc_macro2::TokenStream>,
@@ -1489,6 +1494,7 @@ impl<'a> FieldCodegen<'a> for FieldData {
                 });
             }
         }
+        field_names_types.push((field_ident.clone(), ty.clone()));
 
         fields.extend(Some(field));
 
@@ -1657,6 +1663,7 @@ impl<'a> FieldCodegen<'a> for BitfieldUnit {
         fields: &mut F,
         methods: &mut M,
         _: (),
+        field_names_types: &mut Vec<(proc_macro2::Ident, syn::Type)>,
     ) where
         F: Extend<proc_macro2::TokenStream>,
         M: Extend<proc_macro2::TokenStream>,
@@ -1741,6 +1748,7 @@ impl<'a> FieldCodegen<'a> for BitfieldUnit {
                     &mut bitfield_representable_as_int,
                     &mut bitfield_visibility,
                 ),
+                field_names_types,
             );
             if bitfield_visibility < unit_visibility {
                 unit_visibility = bitfield_visibility;
@@ -1823,6 +1831,7 @@ impl<'a> FieldCodegen<'a> for Bitfield {
             &mut bool,
             &'a mut FieldVisibilityKind,
         ),
+        _field_names_types: &mut Vec<(proc_macro2::Ident, syn::Type)>,
     ) where
         F: Extend<proc_macro2::TokenStream>,
         M: Extend<proc_macro2::TokenStream>,
@@ -1965,6 +1974,7 @@ impl CodeGenerator for CompInfo {
         // the parent too.
         let is_opaque = item.is_opaque(ctx, &());
         let mut fields = vec![];
+        let mut field_names_types = vec![];
         let visibility = item
             .annotations()
             .visibility_kind()
@@ -2021,6 +2031,7 @@ impl CodeGenerator for CompInfo {
                 fields.push(quote! {
                     #access_spec #field_name: #inner,
                 });
+                field_names_types.push((field_name, inner));
             }
         }
 
@@ -2042,6 +2053,7 @@ impl CodeGenerator for CompInfo {
                     &mut fields,
                     &mut methods,
                     (),
+                    &mut field_names_types,
                 );
             }
             // Check whether an explicit padding field is needed
@@ -2301,6 +2313,58 @@ impl CodeGenerator for CompInfo {
                 #( #fields )*
             }
         });
+
+        if let Some(_ef_ty_cfg) = ctx
+            .encapfn_context()
+            .and_then(|ctx| ctx.config.types.get(&canonical_ident.to_string()))
+        {
+            assert!(
+                fields.len() == field_names_types.len(),
+                "field_names_types {:x?} does not account for all fields {:x?}",
+                field_names_types,
+                fields,
+            );
+
+            for (field_name, field_type) in field_names_types.iter() {
+                let field_name_ref = format_ident!("{}_ref", field_name);
+                let field_name_mut = format_ident!("{}_mut", field_name);
+
+                tokens.append_all(quote! {
+		    impl #canonical_ident {
+		        pub fn #field_name_ref<'a, ID: ::encapfn::branding::EFID>(this: ::encapfn::types::EFRef<'a, ID, #canonical_ident>)
+		    			   -> ::encapfn::types::EFRef<'a, ID, #field_type>
+		        {
+		    	    unsafe { this.sub_ref_unchecked(::core::mem::offset_of!(#canonical_ident, #field_name)) }
+		        }
+
+		        pub fn #field_name_mut<'a, ID: ::encapfn::branding::EFID>(this: ::encapfn::types::EFMutRef<'a, ID, #canonical_ident>)
+		    			   -> ::encapfn::types::EFMutRef<'a, ID, #field_type>
+		        {
+		    	    unsafe { this.sub_ref_unchecked(::core::mem::offset_of!(#canonical_ident, #field_name)) }
+		        }
+		    }
+		});
+            }
+
+            let validate_calls = field_names_types
+		.iter()
+		.fold(quote! { true }, |acc, (field_name, field_type)| quote! {
+		    #acc && unsafe { ::encapfn::types::EFType::validate(
+			t.byte_add(::core::mem::offset_of!(#canonical_ident, #field_name))
+			    as *const #field_type
+		    ) }
+		});
+
+            tokens.append_all(quote! {
+            unsafe impl ::encapfn::types::EFType for #canonical_ident {
+                #[allow(unused)]
+                unsafe fn validate(t: *const Self) -> bool {
+                #validate_calls
+                }
+            }
+            });
+        }
+
         result.push(tokens);
 
         // Generate the inner types and all that stuff.
