@@ -542,7 +542,7 @@ impl<'a> EncapfnABIOracle for EncapfnSysVAMD64Oracle<'a> {
     }
 
     fn invoke_res_trait(&self) -> TokenStream {
-        quote! { ::encapfn::rt::sysv_amd64::SysVAMD64InokeRes }
+        quote! { ::encapfn::rt::sysv_amd64::SysVAMD64InvokeRes }
     }
 
     fn invoke_asm(&self) -> TokenStream {
