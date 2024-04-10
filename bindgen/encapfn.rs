@@ -493,14 +493,16 @@ impl<'a> EncapfnABIOracle for EncapfnSysVAMD64Oracle<'a> {
     }
 
     fn determine_stack_spill(&self, args: &Vec<Layout>) -> usize {
+        const PTR_SIZE: usize = 8;
+
         match self.determine_argument_slots(args).last() {
             Some(ArgumentSlot::Stacked(offset, width, _)) => {
                 // We pass by reference for arguments larger than two pointers
                 assert!(*width <= 8);
                 if *width <= 4 {
-                    *offset + 1
+                    (*offset + 1) * PTR_SIZE
                 } else {
-                    *offset + 2
+                    (*offset + 2) * PTR_SIZE
                 }
             }
             Some(ArgumentSlot::ArgumentRegister(_, _, _)) => 0,
