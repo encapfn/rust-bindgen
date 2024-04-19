@@ -229,6 +229,7 @@ impl EncapfnContext {
                 Some(Box::new(EncapfnRv32iCOracle::new(ctx)))
             }
 
+            ("x86_64-pc-linux-gnu", ABIKind::GenericItanium) |
             ("x86_64-unknown-linux-gnu", ABIKind::GenericItanium) => {
                 Some(Box::new(EncapfnSysVAMD64Oracle::new(ctx)))
             }
