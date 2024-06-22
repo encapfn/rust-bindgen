@@ -4441,11 +4441,11 @@ impl CodeGenerator for Function {
                     .entry("Mock".to_string()).or_insert_with(|| (
                         Box::new(|lib_ident, rt_wrapper_ident, _rt_constraints, impls| {
                             quote! {
-                                impl<ID: ::encapfn::branding::EFID>
-                                    #lib_ident<ID, ::encapfn::rt::mock::MockRt<ID>, ::encapfn::abi::GenericABI>
-                                    for #rt_wrapper_ident<'_, ID, ::encapfn::rt::mock::MockRt<ID>>
+                                impl<ID: ::encapfn::branding::EFID, A: ::encapfn::rt::mock::MockRtAllocator>
+                                    #lib_ident<ID, ::encapfn::rt::mock::MockRt<ID, A>, ::encapfn::abi::GenericABI>
+                                    for #rt_wrapper_ident<'_, ID, ::encapfn::rt::mock::MockRt<ID, A>>
                                 {
-                                    type RT = ::encapfn::rt::mock::MockRt<ID>;
+                                    type RT = ::encapfn::rt::mock::MockRt<ID, A>;
 
                                     fn rt(&self) -> &Self::RT {
                                         &self.rt
