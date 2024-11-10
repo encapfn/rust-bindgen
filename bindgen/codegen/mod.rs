@@ -4720,10 +4720,9 @@ impl CodeGenerator for Function {
                                 _fnptr: *const (),
                                 _resptr: &mut RT::InvokeRes<#ret_or_unit>
                             ) {
-                                core::arch::asm!(
+                                core::arch::naked_asm!(
                                     #invoke_asm,
                                     invoke = sym RT::invoke,
-                                    options(noreturn),
                                 );
                             }
 
