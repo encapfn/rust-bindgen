@@ -4684,7 +4684,7 @@ impl CodeGenerator for Function {
                                 self.rt().allocate_stacked_untracked_mut(
                                     ::core::alloc::Layout::new::<#ty>(),
                                     // We deliberately alias the original argument name:
-                                    move |#arg_ident_ptr: *mut u8| {
+                                    move |#arg_ident_ptr: *mut ()| {
                                         // Move the argument into the allocated slot on the stack
                                         unsafe { ::core::ptr::write(#arg_ident_ptr as *mut #ty, #arg_ident) };
                                         // Alias the original argument name:
