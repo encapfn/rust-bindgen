@@ -4592,7 +4592,7 @@ impl CodeGenerator for Function {
                         #rt_trait<#stack_spill, #runtime_argument_slot_type>
                     });
 
-                    let symbol_table_idx = encapfn_context
+                    let (symbol_table_idx, fixed_symbol_table_idx) = encapfn_context
                         .symbol_table_offsets
                         .0
                         .get(&ident.to_string())
@@ -4606,7 +4606,7 @@ impl CodeGenerator for Function {
                                         ::core::alloc::Layout::from_size_align(#ret_size, #ret_align).unwrap(),
                                         |ef_ret_ptr| {
                                             // TODO: choose unique name!
-                                            let ef_sym = self.rt().lookup_symbol(#symbol_table_idx, &self.symbols).unwrap();
+                                            let ef_sym = self.rt().lookup_symbol(#symbol_table_idx, #fixed_symbol_table_idx, &self.symbols).unwrap();
                                             let mut ef_res = <
                                                 <RT as #rt_base_trait>::InvokeRes<#ret_or_unit>
                                                 as #invoke_res_trait<RT, #ret_or_unit>
@@ -4637,7 +4637,7 @@ impl CodeGenerator for Function {
                             (
                                 quote! {
                                     // TODO: choose unique name!
-                                    let ef_sym = self.rt().lookup_symbol(#symbol_table_idx, &self.symbols).unwrap();
+                                    let ef_sym = self.rt().lookup_symbol(#symbol_table_idx, #fixed_symbol_table_idx, &self.symbols).unwrap();
                                     let mut ef_res = <
                                         <RT as #rt_base_trait>::InvokeRes<#ret_or_unit>
                                         as #invoke_res_trait<RT, #ret_or_unit>

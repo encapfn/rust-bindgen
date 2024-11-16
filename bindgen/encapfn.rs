@@ -30,7 +30,7 @@ pub struct EncapfnConfig {
 // #[derive(Debug)]
 pub struct EncapfnContext {
     pub config: EncapfnConfig,
-    pub symbol_table_offsets: (HashMap<String, usize>, Vec<String>),
+    pub symbol_table_offsets: (HashMap<String, (usize, usize)>, Vec<String>),
     pub trait_functions: RefCell<Vec<TokenStream>>,
     pub abi_trait_implementations: RefCell<
         HashMap<
@@ -71,17 +71,26 @@ impl EncapfnContext {
         let symbol_table = config
             .functions
             .iter()
-            .map(|(name, _)| name.clone())
+            .map(|(name, fn_config)| {
+                (name.clone(), fn_config.fntab_id as usize)
+            })
             .collect::<Vec<_>>();
         let symbol_table_offsets = symbol_table
             .iter()
             .enumerate()
-            .map(|(idx, name)| (name.clone(), idx))
+            .map(|(idx, (name, fntab_id))| (name.clone(), (idx, *fntab_id)))
             .collect::<HashMap<_, _>>();
 
         EncapfnContext {
             config,
-            symbol_table_offsets: (symbol_table_offsets, symbol_table),
+            symbol_table_offsets: (
+                symbol_table_offsets,
+                symbol_table
+                    .iter()
+                    .cloned()
+                    .map(|(sym, _)| sym)
+                    .collect::<Vec<_>>(),
+            ),
             trait_functions: RefCell::new(vec![]),
             abi_trait_implementations: RefCell::new(HashMap::new()),
         }
@@ -224,13 +233,13 @@ impl EncapfnContext {
         abi: ABIKind,
     ) -> Option<Box<dyn EncapfnABIOracle + 'a>> {
         match (triple, abi) {
-            ("riscv32-unknown-unknown", ABIKind::GenericItanium) |
-            ("riscv32-unknown-none-elf", ABIKind::GenericItanium) => {
+            ("riscv32-unknown-unknown", ABIKind::GenericItanium)
+            | ("riscv32-unknown-none-elf", ABIKind::GenericItanium) => {
                 Some(Box::new(EncapfnRv32iCOracle::new(ctx)))
             }
 
-            ("x86_64-pc-linux-gnu", ABIKind::GenericItanium) |
-            ("x86_64-unknown-linux-gnu", ABIKind::GenericItanium) => {
+            ("x86_64-pc-linux-gnu", ABIKind::GenericItanium)
+            | ("x86_64-unknown-linux-gnu", ABIKind::GenericItanium) => {
                 Some(Box::new(EncapfnSysVAMD64Oracle::new(ctx)))
             }
 
