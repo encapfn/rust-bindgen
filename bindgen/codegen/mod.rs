@@ -4429,8 +4429,9 @@ impl CodeGenerator for Function {
                 encapfn_context.trait_functions.borrow_mut().push(quote! {
                     fn #ident(
                     &self,
-                    #( #args, )*
-                    access_scope: &mut ::encapfn::types::AccessScope<ID>,
+			#( #args, )*
+			alloc_scope: &mut ::encapfn::types::AllocScope<'_, <Self::RT as ::encapfn::rt::EncapfnRt>::AllocTracker<'_>, ID>,
+			access_scope: &mut ::encapfn::types::AccessScope<ID>,
                     ) -> ::encapfn::EFResult<#ret_or_unit>;
                 });
 
@@ -4461,6 +4462,7 @@ impl CodeGenerator for Function {
                     fn #ident(
                         &self,
                         #( #args, )*
+			_alloc_scope: &mut ::encapfn::types::AllocScope<'_, <Self::RT as ::encapfn::rt::EncapfnRt>::AllocTracker<'_>, ID>,
                         _access_scope: &mut ::encapfn::types::AccessScope<ID>,
                     ) -> ::encapfn::EFResult<#ret_or_unit> {
                         ::encapfn::EFResult::Ok(
@@ -4592,45 +4594,47 @@ impl CodeGenerator for Function {
                         #rt_trait<#stack_spill, #runtime_argument_slot_type>
                     });
 
-                    let (symbol_table_idx, fixed_symbol_table_idx) = encapfn_context
-                        .symbol_table_offsets
-                        .0
-                        .get(&ident.to_string())
-                        .unwrap();
+                    let (symbol_table_idx, fixed_symbol_table_idx) =
+                        encapfn_context
+                            .symbol_table_offsets
+                            .0
+                            .get(&ident.to_string())
+                            .unwrap();
 
                     let (mut wrapped_invocation, invisible_ret_ref_arg) =
                         if ret_by_ref {
                             (
                                 quote! {
-                                    self.rt.allocate_stacked_untracked_mut(
-                                        ::core::alloc::Layout::from_size_align(#ret_size, #ret_align).unwrap(),
-                                        |ef_ret_ptr| {
-                                            // TODO: choose unique name!
-                                            let ef_sym = self.rt().lookup_symbol(#symbol_table_idx, #fixed_symbol_table_idx, &self.symbols).unwrap();
-                                            let mut ef_res = <
-                                                <RT as #rt_base_trait>::InvokeRes<#ret_or_unit>
-                                                as #invoke_res_trait<RT, #ret_or_unit>
-                                            >::new();
+                                                self.rt.allocate_stacked_mut(
+                                                    ::core::alloc::Layout::from_size_align(#ret_size, #ret_align).unwrap(),
+                                alloc_scope,
+                                                    |ef_ret_ptr, alloc_scope| {
+                                                        // TODO: choose unique name!
+                                                        let ef_sym = self.rt().lookup_symbol(#symbol_table_idx, #fixed_symbol_table_idx, &self.symbols).unwrap();
+                                                        let mut ef_res = <
+                                                            <RT as #rt_base_trait>::InvokeRes<#ret_or_unit>
+                                                            as #invoke_res_trait<RT, #ret_or_unit>
+                                                        >::new();
 
-                                            let ef_res_borrowed = &mut ef_res;
-                                            self.rt().execute(move || {
-                                                unsafe {
-                                                    #ident_int::<RT>(
-                                                        ef_ret_ptr as *mut #ret_or_unit,
-                                                        #( #arg_idents, )*
-                                                        self.rt(),
-                                                        ef_sym,
-                                                        ef_res_borrowed,
-                                                    );
-                                                }
-                                            });
+                                                        let ef_res_borrowed = &mut ef_res;
+                                                        self.rt().execute(alloc_scope, access_scope, move || {
+                                                            unsafe {
+                                                                #ident_int::<RT>(
+                                                                    ef_ret_ptr as *mut #ret_or_unit,
+                                                                    #( #arg_idents, )*
+                                                                    self.rt(),
+                                                                    ef_sym,
+                                                                    ef_res_borrowed,
+                                                                );
+                                                            }
+                                                        });
 
-                                            unsafe {
-                                                #invoke_res_trait::<RT, #ret_or_unit>::into_result_stacked(
-                                                    ef_res, self.rt(), ef_ret_ptr as *mut #ret_or_unit)
-                                            }
-                                    }).unwrap()
-                                },
+                                                        unsafe {
+                                                            #invoke_res_trait::<RT, #ret_or_unit>::into_result_stacked(
+                                                                ef_res, self.rt(), ef_ret_ptr as *mut #ret_or_unit)
+                                                        }
+                                                }).unwrap()
+                                            },
                                 quote! { _: *mut #ret_or_unit, },
                             )
                         } else {
@@ -4644,7 +4648,7 @@ impl CodeGenerator for Function {
                                     >::new();
 
                                     let ef_res_borrowed = &mut ef_res;
-                                    self.rt().execute(move || {
+                                    self.rt().execute(alloc_scope, access_scope, move || {
                                         unsafe {
                                             #ident_int::<RT>(
                                                 #( #arg_idents, )*
@@ -4681,10 +4685,10 @@ impl CodeGenerator for Function {
                         // stack and move the object into that slot:
                         if slot.pass_by_ref() {
                             wrapped_invocation = quote! {
-                                self.rt().allocate_stacked_untracked_mut(
+                                self.rt().allocate_stacked_mut(
                                     ::core::alloc::Layout::new::<#ty>(),
                                     // We deliberately alias the original argument name:
-                                    move |#arg_ident_ptr: *mut ()| {
+                                    move |#arg_ident_ptr: *mut (), alloc_scope| {
                                         // Move the argument into the allocated slot on the stack
                                         unsafe { ::core::ptr::write(#arg_ident_ptr as *mut #ty, #arg_ident) };
                                         // Alias the original argument name:
@@ -4708,7 +4712,8 @@ impl CodeGenerator for Function {
                         fn #ident(
                             &self,
                             #( #args, )*
-                            _access_scope: &mut ::encapfn::types::AccessScope<ID>,
+			    alloc_scope: &mut ::encapfn::types::AllocScope<'_, <Self::RT as ::encapfn::rt::EncapfnRt>::AllocTracker<'_>, ID>,
+                            access_scope: &mut ::encapfn::types::AccessScope<ID>,
                         ) -> ::encapfn::EFResult<#ret_or_unit> {
                             #[naked]
                             unsafe extern "C" fn #ident_int<
