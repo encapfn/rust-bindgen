@@ -233,13 +233,13 @@ impl EncapfnContext {
         abi: ABIKind,
     ) -> Option<Box<dyn EncapfnABIOracle + 'a>> {
         match (triple, abi) {
-            ("riscv32-unknown-unknown", ABIKind::GenericItanium)
-            | ("riscv32-unknown-none-elf", ABIKind::GenericItanium) => {
+            ("riscv32-unknown-unknown", ABIKind::GenericItanium) |
+            ("riscv32-unknown-none-elf", ABIKind::GenericItanium) => {
                 Some(Box::new(EncapfnRv32iCOracle::new(ctx)))
             }
 
-            ("x86_64-pc-linux-gnu", ABIKind::GenericItanium)
-            | ("x86_64-unknown-linux-gnu", ABIKind::GenericItanium) => {
+            ("x86_64-pc-linux-gnu", ABIKind::GenericItanium) |
+            ("x86_64-unknown-linux-gnu", ABIKind::GenericItanium) => {
                 Some(Box::new(EncapfnSysVAMD64Oracle::new(ctx)))
             }
 
@@ -324,24 +324,24 @@ fn rv_determine_argument_slots<const RV64: bool>(
 
     // Iterate over the type-layout of all arguments:
     for arg in args {
-	// As per the RISC-V calling convention:
-	//
-	// When primitive arguments twice the size of a pointer-word are
-	// passed on the stack, they are naturally aligned. When they are
-	// passed in the integer registers, they reside in an aligned
-	// even-odd register pair, with the even register holding the
-	// least-significant bits. In RV32, for example, the function void
-	// foo(int, long long) is passed its first argument in a0 and its
-	// second in a2 and a3. Nothing is passed in a1.
-	//
+        // As per the RISC-V calling convention:
+        //
+        // When primitive arguments twice the size of a pointer-word are
+        // passed on the stack, they are naturally aligned. When they are
+        // passed in the integer registers, they reside in an aligned
+        // even-odd register pair, with the even register holding the
+        // least-significant bits. In RV32, for example, the function void
+        // foo(int, long long) is passed its first argument in a0 and its
+        // second in a2 and a3. Nothing is passed in a1.
+        //
         // We probably can't detect whether we're talking about a
         // **primitive** argument in this case. We approximate the above by
         // checking for whether both the size AND alignment of the type are
         // at least twice the pointer size, which will -- for instance --
         // exclude structs that hold two pointers:
-        let double_pointer_word =
-            (arg.size > ptr_size && arg.size <= 2 * ptr_size)
-	    && (arg.align > ptr_size && arg.align <= 2 * ptr_size);
+        let double_pointer_word = (arg.size > ptr_size &&
+            arg.size <= 2 * ptr_size) &&
+            (arg.align > ptr_size && arg.align <= 2 * ptr_size);
 
         if double_pointer_word && ptr_offset % 2 == 1 {
             ptr_offset += 1;
