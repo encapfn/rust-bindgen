@@ -4497,11 +4497,16 @@ impl CodeGenerator for Function {
                         (0, 0, false)
                     } else {
                         let ty = ctx.resolve_type(signature.return_type());
-                        let layout = ty.layout(&ctx).expect(&format!(
-                            "Unable to determine layout of return type {:?}",
-                            ty
-                        ));
-                        (layout.size, layout.align, layout.size > 16)
+
+                        if ty.is_void() {
+                            (0, 0, false)
+                        } else {
+                            let layout = ty.layout(&ctx).expect(&format!(
+				"Unable to determine layout of return type {:?}",
+				ty
+                            ));
+                            (layout.size, layout.align, layout.size > 16)
+                        }
                     };
 
                     // Now, if we do pass the return value by reference, we'll
