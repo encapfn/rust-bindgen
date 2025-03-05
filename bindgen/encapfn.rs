@@ -192,22 +192,22 @@ impl EncapfnContext {
             ] = [ #( #fixed_function_table_sequence ),* ];
 
             pub struct #wrapper_type_ident<
-                'a,
                 ID: ::encapfn::branding::EFID,
                 RT: ::encapfn::rt::EncapfnRt,
+                BorrowRT: ::core::borrow::Borrow<RT>,
             > {
-                rt: &'a RT,
+                rt: BorrowRT,
                 symbols: RT::SymbolTableState<#function_table_length, #fixed_function_table_length>,
                 _id: ::core::marker::PhantomData<ID>,
             }
 
             impl<
-                'a,
                 ID: ::encapfn::branding::EFID,
                 RT: ::encapfn::rt::EncapfnRt,
-            > #wrapper_type_ident<'a, ID, RT> {
-                pub fn new(rt: &'a RT) -> Option<Self> {
-                    if let Some(symbols) = rt.resolve_symbols(
+                BorrowRT: ::core::borrow::Borrow<RT>,
+            > #wrapper_type_ident<ID, RT, BorrowRT> {
+                pub fn new(rt: BorrowRT) -> Option<Self> {
+                    if let Some(symbols) = rt.borrow().resolve_symbols(
                         &#function_table_ident,
                         &#fixed_offset_function_table_ident
                     ) {
@@ -219,6 +219,10 @@ impl EncapfnContext {
                     } else {
                         None
                     }
+                }
+
+                pub fn into_inner(self) -> BorrowRT {
+                    self.rt
                 }
             }
 

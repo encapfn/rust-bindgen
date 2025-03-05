@@ -4442,14 +4442,18 @@ impl CodeGenerator for Function {
                     .entry("Mock".to_string()).or_insert_with(|| (
                         Box::new(|lib_ident, rt_wrapper_ident, _rt_constraints, impls| {
                             quote! {
-                                impl<ID: ::encapfn::branding::EFID, A: ::encapfn::rt::mock::MockRtAllocator>
+                                impl<
+                                    ID: ::encapfn::branding::EFID,
+                                    A: ::encapfn::rt::mock::MockRtAllocator,
+                                    BorrowRT: ::core::borrow::Borrow<::encapfn::rt::mock::MockRt<ID, A>>
+                                >
                                     #lib_ident<ID, ::encapfn::rt::mock::MockRt<ID, A>, ::encapfn::abi::GenericABI>
-                                    for #rt_wrapper_ident<'_, ID, ::encapfn::rt::mock::MockRt<ID, A>>
+                                    for #rt_wrapper_ident<ID, ::encapfn::rt::mock::MockRt<ID, A>, BorrowRT>
                                 {
                                     type RT = ::encapfn::rt::mock::MockRt<ID, A>;
 
                                     fn rt(&self) -> &Self::RT {
-                                        &self.rt
+                                        self.rt.borrow()
                                     }
 
                                     #( #impls )*
@@ -4502,8 +4506,8 @@ impl CodeGenerator for Function {
                             (0, 0, false)
                         } else {
                             let layout = ty.layout(&ctx).expect(&format!(
-				"Unable to determine layout of return type {:?}",
-				ty
+                                "Unable to determine layout of return type {:?}",
+                                ty
                             ));
                             (layout.size, layout.align, layout.size > 16)
                         }
@@ -4574,14 +4578,18 @@ impl CodeGenerator for Function {
                                     > #lib_abirt_trait_ident for RT
                                     {}
 
-                                    impl<ID: ::encapfn::branding::EFID, RT: #lib_abirt_trait_ident<ID = ID>>
+                                    impl<
+                                        ID: ::encapfn::branding::EFID,
+                                        RT: #lib_abirt_trait_ident<ID = ID>,
+                                        BorrowRT: ::core::borrow::Borrow<RT>
+                                    >
                                         #lib_ident<ID, RT, #abi_type>
-                                        for #rt_wrapper_ident<'_, ID, RT>
+                                        for #rt_wrapper_ident<ID, RT, BorrowRT>
                                     {
                                         type RT = RT;
 
                                         fn rt(&self) -> &Self::RT {
-                                            &self.rt
+                                            self.rt.borrow()
                                         }
 
                                         #( #impls )*
